@@ -202,15 +202,17 @@ export default function TopCommandBar({
           </>
         )}
 
-        {/* @ts-ignore */}
-        <input
-          ref={folderRef}
-          type="file"
-          multiple
-          webkitdirectory=""
-          onChange={(e) => e.target.files && onUploadLocalFolder(e.target.files)}
-          className="hidden"
-        />
+        {/* Completely bypassed via 'any' type casting to prevent Vercel TS strict compilation errors */}
+        {React.createElement('input', {
+          ref: folderRef,
+          type: 'file',
+          multiple: true,
+          directory: '',
+          webkitdirectory: '',
+          onChange: (e: any) => e.target.files && onUploadLocalFolder(e.target.files),
+          className: 'hidden'
+        } as any)}
+
         <button
           type="button"
           onClick={() => folderRef.current?.click()}

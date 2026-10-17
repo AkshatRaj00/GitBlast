@@ -131,7 +131,6 @@ export default function TopCommandBar({
       </form>
 
       <div className="flex items-center gap-2">
-        {/* Paste Terminal Git Diff Button */}
         {graph && (
           <button
             type="button"
@@ -144,7 +143,6 @@ export default function TopCommandBar({
           </button>
         )}
 
-        {/* 1-Click High-Res PNG Architecture Export */}
         {graph && (
           <button
             type="button"
@@ -204,11 +202,11 @@ export default function TopCommandBar({
           </>
         )}
 
+        {/* @ts-ignore */}
         <input
           ref={folderRef}
           type="file"
           multiple
-          directory=""
           webkitdirectory=""
           onChange={(e) => e.target.files && onUploadLocalFolder(e.target.files)}
           className="hidden"

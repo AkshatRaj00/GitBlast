@@ -9,9 +9,17 @@
     "lint": "eslint"
   },
   "dependencies": {
+    "@monaco-editor/react": "^4.7.0",
+    "@types/d3-force": "^3.0.10",
+    "clsx": "^2.1.1",
+    "d3-force": "^3.0.0",
+    "idb-keyval": "^6.3.0",
+    "jszip": "^3.10.2",
+    "lucide-react": "^1.57.0",
     "next": "16.4.0",
     "react": "19.3.0",
-    "react-dom": "19.3.0"
+    "react-dom": "19.3.0",
+    "tailwind-merge": "^3.7.0"
   },
   "devDependencies": {
     "@tailwindcss/turbopack": "^4",

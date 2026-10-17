@@ -1,0 +1,27 @@
+﻿name: "Release"
+tag-template: "v$version"
+categories:
+  - title: "🚀 Features"
+    labels:
+      - "enhancement"
+      - "feature"
+  - title: "🐛 Bug Fixes"
+    labels:
+      - "bug"
+      - "fix"
+  - title: "🧰 Maintenance"
+    labels:
+      - "chore"
+      - "dependencies"
+change-template: "- $TITLE (#$NUMBER) @$AUTHOR"
+version-resolver:
+  major:
+    labels:
+      - "major"
+  minor:
+    labels:
+      - "enhancement"
+  patch:
+    labels:
+      - "bug"
+include-contributors: true

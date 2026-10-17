@@ -1,0 +1,14 @@
+﻿"documentation":
+  - "docs/**/*"
+  - "**/*.md"
+"frontend":
+  - "app/**/*"
+  - "components/**/*"
+  - "styles/**/*"
+"backend":
+  - "engine/**/*"
+  - "app/api/**/*"
+  - "storage/**/*"
+"dependencies":
+  - "package.json"
+  - "package-lock.json"

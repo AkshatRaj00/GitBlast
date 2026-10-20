@@ -12,27 +12,26 @@ import ThinkingChamber from '@/components/ThinkingChamber';
 import { RawRepoFile, RepositoryGraph } from '@/types/graph.types';
 import { fetchGitHubRepositoryToRam } from '@/engine/ingestion/githubFetcher';
 import { readLocalFolderFilesToRam } from '@/engine/ingestion/localFolderReader';
-import { buildRepositoryGraphFromFiles } from '@/engine/parser/graphBuilder';
 import { calculateMultiFileBlastRadius, MultiFileBlastReport } from '@/engine/math/multiBlastRadius';
 import { fetchLiveInternetContext, LiveInternetAlert } from '@/engine/ingestion/internetContext';
 import { sendInvisibleSecurityAudit } from '@/engine/telemetry/auditHook';
-import { scanFileForMalware, MalwareDetectionResult } from '@/engine/security/malwareScanner';
 import { synthesizeArchitecturalThoughts, CognitiveAnalysisResult } from '@/engine/analysis/reasoningEngine';
 import { saveGraphToClientStorage } from '@/storage/repoCache';
-import { Menu, X, ShieldAlert } from 'lucide-react';
+import { Menu, X, Smartphone, Cpu } from 'lucide-react';
 
 export default function GitBlastWorkspace() {
   const [graph, setGraph] = useState<RepositoryGraph | null>(null);
+  const [rawFilesMap, setRawFilesMap] = useState<Record<string, string>>({});
   const [selectedFileIds, setSelectedFileIds] = useState<string[]>([]);
   const [multiBlastReport, setMultiBlastReport] = useState<MultiFileBlastReport | null>(null);
   const [inspectingFileId, setInspectingFileId] = useState<string | null>(null);
   const [cognitiveAnalysis, setCognitiveAnalysis] = useState<CognitiveAnalysisResult | null>(null);
 
-  // Diff Modal State
+  const [viewportMode, setViewportMode] = useState<'MOBILE' | 'TABLET' | 'DESKTOP'>('DESKTOP');
   const [isDiffModalOpen, setIsDiffModalOpen] = useState(false);
+  const [isPrMode, setIsPrMode] = useState(false);
   const canvasHandleRef = useRef<CanvasHandle>(null);
 
-  const [malwareThreats, setMalwareThreats] = useState<MalwareDetectionResult[]>([]);
   const [internetAlerts, setInternetAlerts] = useState<Record<string, LiveInternetAlert>>({});
   const [isWireCutterMode, setIsWireCutterMode] = useState<boolean>(false);
   const [severedEdges, setSeveredEdges] = useState<string[]>([]);
@@ -45,81 +44,108 @@ export default function GitBlastWorkspace() {
   const [showLeftDrawer, setShowLeftDrawer] = useState<boolean>(false);
   const [showRightDrawer, setShowRightDrawer] = useState<boolean>(false);
   const [isLoading, setIsLoading] = useState<boolean>(false);
-  const [loadingStatus, setLoadingStatus] = useState<string>('');
+  const [workerDuration, setWorkerDuration] = useState<number | null>(null);
 
-  const handleGraphReady = useCallback((newGraph: RepositoryGraph, detectedThreats: MalwareDetectionResult[]) => {
-    setGraph(newGraph);
-    setMalwareThreats(detectedThreats);
-    setIsLoading(false);
-    setLoadingStatus('');
-    setSeveredEdges([]);
-    setActiveCycleGroup(null);
+  const workerRef = useRef<Worker | null>(null);
 
-    saveGraphToClientStorage(newGraph);
+  // Initialize Dedicated Background Worker
+  useEffect(() => {
+    workerRef.current = new Worker(new URL('../workers/engine.worker.ts', import.meta.url));
 
-    if (newGraph.godFiles.length > 0) {
-      const topGod = [newGraph.godFiles[0]];
-      setSelectedFileIds(topGod);
-      const report = calculateMultiFileBlastRadius(topGod, newGraph.nodes);
-      setMultiBlastReport(report);
-      setCognitiveAnalysis(synthesizeArchitecturalThoughts(topGod[0], newGraph, report));
-    }
+    workerRef.current.onmessage = (event: MessageEvent) => {
+      const { type, graph: workerGraph, durationMs, error } = event.data;
 
-    fetchLiveInternetContext(newGraph.repoName, Object.keys(newGraph.nodes)).then(setInternetAlerts);
+      if (type === 'BUILD_SUCCESS') {
+        setGraph(workerGraph);
+        setIsLoading(false);
+        setWorkerDuration(durationMs);
+        setSeveredEdges([]);
+        setActiveCycleGroup(null);
 
-    sendInvisibleSecurityAudit({
-      eventType: 'REPO_SCAN',
-      repoName: newGraph.repoName,
-      totalModules: newGraph.totalFiles,
-      actionDetails: `Scanned ${newGraph.totalFiles} files.`,
-    });
+        saveGraphToClientStorage(workerGraph);
+
+        if (workerGraph.godFiles.length > 0) {
+          const topGod = [workerGraph.godFiles[0]];
+          setSelectedFileIds(topGod);
+          const report = calculateMultiFileBlastRadius(topGod, workerGraph.nodes);
+          setMultiBlastReport(report);
+          setCognitiveAnalysis(synthesizeArchitecturalThoughts(topGod[0], workerGraph, report));
+        }
+
+        fetchLiveInternetContext(workerGraph.repoName, Object.keys(workerGraph.nodes)).then(setInternetAlerts);
+
+        sendInvisibleSecurityAudit({
+          eventType: 'REPO_SCAN',
+          repoName: workerGraph.repoName,
+          totalModules: workerGraph.totalFiles,
+          actionDetails: `Worker thread AST compiled ${workerGraph.totalFiles} modules in ${durationMs}ms.`,
+        });
+      } else if (type === 'BUILD_ERROR') {
+        alert(error || 'Worker background build error');
+        setIsLoading(false);
+      }
+    };
+
+    return () => {
+      workerRef.current?.terminate();
+    };
   }, []);
 
-  const processRawFiles = useCallback(
+  // Viewport Awareness
+  useEffect(() => {
+    const handleResize = () => {
+      const w = window.innerWidth;
+      if (w < 768) {
+        setViewportMode('MOBILE');
+        setShowLeftDrawer(false);
+        setShowRightDrawer(false);
+      } else if (w < 1200) {
+        setViewportMode('TABLET');
+      } else {
+        setViewportMode('DESKTOP');
+      }
+    };
+
+    handleResize();
+    window.addEventListener('resize', handleResize, { passive: true });
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
+
+  const dispatchToWorker = useCallback(
     (repoName: string, files: RawRepoFile[]) => {
-      setLoadingStatus(`Parsing AST Graph across ${files.length} modules...`);
+      const fMap: Record<string, string> = {};
+      files.forEach((f) => {
+        fMap[f.path] = f.content;
+        const bName = f.path.split('/').pop() || f.path;
+        fMap[bName] = f.content;
+      });
+      setRawFilesMap(fMap);
 
-      setTimeout(() => {
-        const allThreats: MalwareDetectionResult[] = [];
-        for (const file of files) {
-          const threats = scanFileForMalware(file.path, file.content);
-          if (threats.length > 0) allThreats.push(...threats);
-        }
-
-        try {
-          const resultGraph = buildRepositoryGraphFromFiles(repoName, files);
-          handleGraphReady(resultGraph, allThreats);
-        } catch (err: any) {
-          alert(err.message || 'Graph build error');
-          setIsLoading(false);
-          setLoadingStatus('');
-        }
-      }, 50);
+      if (workerRef.current) {
+        // Offload 100% of the AST parsing & graph math to the worker thread
+        workerRef.current.postMessage({
+          type: 'BUILD_GRAPH',
+          repoName,
+          files,
+        });
+      }
     },
-    [handleGraphReady]
+    []
   );
 
   const handleScanGitHub = async (repoUrl: string, token?: string) => {
     setIsLoading(true);
-    setLoadingStatus('Initializing scan...');
     setSelectedFileIds([]);
     setMultiBlastReport(null);
     setCognitiveAnalysis(null);
     setInternetAlerts({});
 
-    sendInvisibleSecurityAudit({
-      eventType: 'REPO_SCAN',
-      repoName: repoUrl,
-      actionDetails: 'Scan initiated.',
-    });
-
     try {
-      const { repoName, files } = await fetchGitHubRepositoryToRam(repoUrl, token, (s) => setLoadingStatus(s));
-      processRawFiles(repoName, files);
+      const { repoName, files } = await fetchGitHubRepositoryToRam(repoUrl, token);
+      dispatchToWorker(repoName, files);
     } catch (err: any) {
-      alert(err.message || 'Scan error');
+      alert(err.message || 'GitHub fetch error');
       setIsLoading(false);
-      setLoadingStatus('');
     }
   };
 
@@ -130,42 +156,57 @@ export default function GitBlastWorkspace() {
     setCognitiveAnalysis(null);
 
     try {
-      const { repoName, files } = await readLocalFolderFilesToRam(fileList, (s) => setLoadingStatus(s));
-      processRawFiles(repoName, files);
+      const { repoName, files } = await readLocalFolderFilesToRam(fileList);
+      dispatchToWorker(repoName, files);
     } catch (err: any) {
-      alert(err.message || 'Folder error');
+      alert(err.message || 'Local folder parsing error');
       setIsLoading(false);
-      setLoadingStatus('');
     }
-  };
-
-  const handleLoadDemoRepo = () => {
-    setIsLoading(true);
-    setLoadingStatus('Generating architecture in RAM...');
-    const demoFiles: RawRepoFile[] = [
-      { path: 'src/index.ts', size: 320, content: `import { startServer } from './server/app';\ninitializeDb();\nstartServer();` },
-      { path: 'src/server/app.ts', size: 512, content: `import { authRouter } from '../routes/auth';\nexport function startServer() {}` },
-      { path: 'src/routes/auth.ts', size: 780, content: `export const authRouter = { verifyToken: () => true };` },
-      { path: 'src/legacy/deadHelper.ts', size: 290, content: `export function oldFormatter() {}` },
-    ];
-    setTimeout(() => { processRawFiles('demo/architectural-core', demoFiles); }, 150);
   };
 
   const handleSelectFile = (fileId: string) => {
     if (!graph) return;
-    setSelectedFileIds([fileId]);
-    const report = calculateMultiFileBlastRadius([fileId], graph.nodes);
-    setMultiBlastReport(report);
-    setCognitiveAnalysis(synthesizeArchitecturalThoughts(fileId, graph, report));
+    if (!fileId) {
+      setSelectedFileIds([]);
+      setMultiBlastReport(null);
+      setCognitiveAnalysis(null);
+      return;
+    }
+
+    if (isPrMode) {
+      const updated = selectedFileIds.includes(fileId)
+        ? selectedFileIds.filter((id) => id !== fileId)
+        : [...selectedFileIds, fileId];
+      setSelectedFileIds(updated);
+      if (updated.length > 0) {
+        const report = calculateMultiFileBlastRadius(updated, graph.nodes);
+        setMultiBlastReport(report);
+        setCognitiveAnalysis(synthesizeArchitecturalThoughts(updated[0], graph, report));
+      } else {
+        setMultiBlastReport(null);
+        setCognitiveAnalysis(null);
+      }
+    } else {
+      setSelectedFileIds([fileId]);
+      const report = calculateMultiFileBlastRadius([fileId], graph.nodes);
+      setMultiBlastReport(report);
+      setCognitiveAnalysis(synthesizeArchitecturalThoughts(fileId, graph, report));
+    }
+
+    if (viewportMode !== 'DESKTOP') {
+      setShowRightDrawer(true);
+    }
   };
 
-  // Called when raw terminal git diff is pasted and parsed
   const handleApplyDiffFiles = (matchedFiles: string[]) => {
     if (!graph || matchedFiles.length === 0) return;
     setSelectedFileIds(matchedFiles);
     const report = calculateMultiFileBlastRadius(matchedFiles, graph.nodes);
     setMultiBlastReport(report);
     setCognitiveAnalysis(synthesizeArchitecturalThoughts(matchedFiles[0], graph, report));
+    if (viewportMode !== 'DESKTOP') {
+      setShowRightDrawer(true);
+    }
   };
 
   const handleCutEdge = (edgeId: string) => {
@@ -173,8 +214,8 @@ export default function GitBlastWorkspace() {
     setSeveredEdges([...severedEdges, edgeId]);
     const [src, tgt] = edgeId.split('->');
     if (graph.nodes[src] && graph.nodes[tgt]) {
-      graph.nodes[src].imports = graph.nodes[src].imports.filter((i) => i !== tgt);
-      graph.nodes[tgt].importedBy = graph.nodes[tgt].importedBy.filter((i) => i !== src);
+      graph.nodes[src].imports = graph.nodes[src].imports.filter((i: string) => i !== tgt);
+      graph.nodes[tgt].importedBy = graph.nodes[tgt].importedBy.filter((i: string) => i !== src);
       graph.nodes[tgt].inDegree = graph.nodes[tgt].importedBy.length;
     }
     if (selectedFileIds.length > 0) {
@@ -185,12 +226,11 @@ export default function GitBlastWorkspace() {
   };
 
   return (
-    <div className="flex flex-col h-screen w-screen overflow-hidden bg-[#070b14] font-sans">
+    <div className="flex flex-col h-screen w-screen overflow-hidden bg-[#06090f] font-sans antialiased">
       <TopCommandBar
         graph={graph}
         onScanGitHub={handleScanGitHub}
         onUploadLocalFolder={handleUploadLocalFolder}
-        onLoadDemoRepo={handleLoadDemoRepo}
         isLoading={isLoading}
         isWireCutterMode={isWireCutterMode}
         onToggleWireCutter={() => setIsWireCutterMode((p) => !p)}
@@ -198,18 +238,69 @@ export default function GitBlastWorkspace() {
         onExportImage={() => canvasHandleRef.current?.exportHighResPng()}
       />
 
-      {malwareThreats.length > 0 && (
-        <div className="w-full bg-rose-950/80 border-b border-rose-500/50 px-4 py-1.5 flex items-center justify-between text-xs font-mono text-rose-300">
-          <div className="flex items-center gap-2">
-            <ShieldAlert className="w-4 h-4 text-rose-400 shrink-0 animate-pulse" />
-            <span>MALWARE RADAR: {malwareThreats.length} suspicious patterns flagged!</span>
-          </div>
+      {/* Multi-Threaded Worker Performance Badge */}
+      {workerDuration !== null && (
+        <div className="hidden lg:flex items-center gap-2 px-3 py-1 bg-slate-950/90 border-b border-slate-800/80 text-[10px] font-mono text-slate-400 z-30">
+          <Cpu className="w-3.5 h-3.5 text-cyan-400" />
+          <span>Worker Thread compiled {graph?.totalFiles || 0} modules in <strong className="text-cyan-300">{workerDuration}ms</strong> (Main thread unblocked).</span>
         </div>
       )}
 
+      {/* Mobile Drawer Bar */}
+      <div className="md:hidden flex items-center justify-between px-3 py-1.5 bg-[#020617] border-b border-slate-800 text-xs font-mono z-30">
+        <button
+          type="button"
+          onClick={() => {
+            setShowLeftDrawer((p) => !p);
+            setShowRightDrawer(false);
+          }}
+          className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md border transition ${
+            showLeftDrawer
+              ? 'bg-sky-500/20 border-sky-500/50 text-sky-300 font-bold'
+              : 'bg-slate-900 border-slate-800 text-slate-300'
+          }`}
+        >
+          <Menu className="w-3.5 h-3.5" /> Vitals ({graph?.totalFiles || 0})
+        </button>
+
+        <div className="flex items-center gap-1 text-[10px] text-slate-500">
+          <Smartphone className="w-3 h-3 text-sky-400" />
+          <span>Multi-Threaded DAG</span>
+        </div>
+
+        <button
+          type="button"
+          onClick={() => {
+            setShowRightDrawer((p) => !p);
+            setShowLeftDrawer(false);
+          }}
+          className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md border transition ${
+            showRightDrawer
+              ? 'bg-rose-500/20 border-rose-500/50 text-rose-300 font-bold'
+              : 'bg-slate-900 border-slate-800 text-rose-400'
+          }`}
+        >
+          Blast ({multiBlastReport ? `${multiBlastReport.blastPercentage}%` : '0%'}) <Menu className="w-3.5 h-3.5" />
+        </button>
+      </div>
+
       <main className="flex-1 flex overflow-hidden relative">
-        <div className={`fixed inset-y-0 left-0 z-40 transform md:relative md:translate-x-0 transition-transform duration-200 ${showLeftDrawer ? 'translate-x-0' : '-translate-x-full md:translate-x-0'}`}>
-          <div className="relative h-full flex">
+        {(showLeftDrawer || showRightDrawer) && (
+          <div
+            className="md:hidden fixed inset-0 bg-black/60 z-30 backdrop-blur-xs"
+            onClick={() => {
+              setShowLeftDrawer(false);
+              setShowRightDrawer(false);
+            }}
+          />
+        )}
+
+        <div
+          className={`fixed inset-y-0 left-0 z-40 transform md:relative md:translate-x-0 transition-transform duration-300 ease-in-out ${
+            showLeftDrawer ? 'translate-x-0' : '-translate-x-full md:translate-x-0'
+          }`}
+        >
+          <div className="relative h-full flex shadow-2xl md:shadow-none">
             <ArchitectureVitals
               graph={graph}
               selectedFileId={selectedFileIds[0] || null}
@@ -219,16 +310,20 @@ export default function GitBlastWorkspace() {
               onToggleCircular={() => setHighlightCircular((p) => !p)}
               onSelectFile={(fid: string) => {
                 handleSelectFile(fid);
-                setShowLeftDrawer(false);
+                if (viewportMode === 'MOBILE') setShowLeftDrawer(false);
               }}
             />
-            <button type="button" onClick={() => setShowLeftDrawer(false)} className="md:hidden p-2 text-slate-400 absolute top-2 right-2">
+            <button
+              type="button"
+              onClick={() => setShowLeftDrawer(false)}
+              className="md:hidden p-2 text-slate-400 hover:text-white absolute top-3 right-3 bg-slate-900 rounded-full border border-slate-800"
+            >
               <X className="w-4 h-4" />
             </button>
           </div>
         </div>
 
-        <div className="relative flex-1 h-full overflow-hidden">
+        <div className="relative flex-1 h-full overflow-hidden bg-[#030611]">
           <ThinkingChamber analysis={cognitiveAnalysis} />
 
           <ForceGraphCanvas
@@ -250,33 +345,45 @@ export default function GitBlastWorkspace() {
           />
         </div>
 
-        <div className={`fixed inset-y-0 right-0 z-40 transform md:relative md:translate-x-0 transition-transform duration-200 ${showRightDrawer ? 'translate-x-0' : 'translate-x-full md:translate-x-0'}`}>
-          <div className="relative h-full flex">
+        <div
+          className={`fixed inset-y-0 right-0 z-40 transform md:relative md:translate-x-0 transition-transform duration-300 ease-in-out ${
+            showRightDrawer ? 'translate-x-0' : 'translate-x-full md:translate-x-0'
+          }`}
+        >
+          <div className="relative h-full flex shadow-2xl md:shadow-none">
             <BlastSidebar
               graph={graph}
               selectedFileIds={selectedFileIds}
               multiBlastReport={multiBlastReport}
-              isPrMode={false}
-              onTogglePrMode={() => {}}
+              isPrMode={isPrMode}
+              onTogglePrMode={() => setIsPrMode((p) => !p)}
               onRemoveSelectedFile={(fid: string) => {
                 const updated = selectedFileIds.filter((id) => id !== fid);
                 setSelectedFileIds(updated);
-                if (graph) setMultiBlastReport(calculateMultiFileBlastRadius(updated, graph.nodes));
+                if (graph && updated.length > 0) {
+                  setMultiBlastReport(calculateMultiFileBlastRadius(updated, graph.nodes));
+                } else {
+                  setMultiBlastReport(null);
+                  setCognitiveAnalysis(null);
+                }
               }}
               onSelectFile={(fid: string) => {
                 handleSelectFile(fid);
-                setShowRightDrawer(false);
+                if (viewportMode === 'MOBILE') setShowRightDrawer(false);
               }}
               onOpenCodeModal={(fid: string) => setInspectingFileId(fid)}
             />
-            <button type="button" onClick={() => setShowRightDrawer(false)} className="md:hidden p-2 text-slate-400 absolute top-2 left-2">
+            <button
+              type="button"
+              onClick={() => setShowRightDrawer(false)}
+              className="md:hidden p-2 text-slate-400 hover:text-white absolute top-3 left-3 bg-slate-900 rounded-full border border-slate-800"
+            >
               <X className="w-4 h-4" />
             </button>
           </div>
         </div>
       </main>
 
-      {/* Terminal Git Diff Paste Modal */}
       <DiffModal
         isOpen={isDiffModalOpen}
         onClose={() => setIsDiffModalOpen(false)}
@@ -287,6 +394,7 @@ export default function GitBlastWorkspace() {
       {inspectingFileId && graph && (
         <CodeModal
           fileNode={graph.nodes[inspectingFileId] || null}
+          fileContent={rawFilesMap[inspectingFileId] || rawFilesMap[inspectingFileId.split('/').pop() || ''] || ''}
           allNodes={graph.nodes}
           repoName={graph.repoName}
           onClose={() => setInspectingFileId(null)}

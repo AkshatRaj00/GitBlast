@@ -1,4 +1,4 @@
-﻿name: "GitBlast Enterprise CI/CD Pipeline"
+﻿name: "GitBlast Master Production Engine"
 
 on:
   push:
@@ -7,7 +7,7 @@ on:
     branches: [ "main", "master" ]
 
 jobs:
-  build-and-test:
+  production-pipeline:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Code
@@ -22,5 +22,5 @@ jobs:
       - name: Install Dependencies
         run: npm ci
 
-      - name: Run Build Check
+      - name: Run Strict TypeScript & Production Build
         run: npm run build

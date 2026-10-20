@@ -1,93 +1,171 @@
-﻿import { DependencyEdge, FileNode, RawRepoFile, RepositoryGraph } from '@/types/graph.types';
-import { computeComplexityAndLoc, detectLanguage } from './complexityScanner';
-import { extractRawImports } from './multiLangTokenizer';
-import { getParentDir, normalizeFilePath, resolveImportToFileId } from './pathResolver';
-import { computeGraphPageRank } from '../math/pageRank';
-import { findCircularDependencies } from '../math/tarjanSCC';
-import { detectDeadFiles } from '../math/deadCodeFinder';
+﻿import { RawRepoFile, RepositoryGraph, FileNode, GraphEdge } from '@/types/graph.types';
+import { parseModuleSymbols, ModuleSymbolTable } from './symbolResolver';
 
-export function buildRepositoryGraphFromFiles(repoName: string, rawFiles: RawRepoFile[]): RepositoryGraph {
+export function buildRepositoryGraphFromFiles(
+  repoName: string,
+  rawFiles: RawRepoFile[]
+): RepositoryGraph {
   const nodes: Record<string, FileNode> = {};
-  const allFileList = Array.from(new Set(rawFiles.map(f => normalizeFilePath(f.path))));
-  const allFileSet = new Set(allFileList);
+  const edges: GraphEdge[] = [];
+  const fileSet = new Set<string>();
+  const baseToFileMap = new Map<string, string>();
 
-  let totalLoc = 0;
+  // Filter noise & binary artifacts
+  const validFiles = rawFiles.filter((f) => {
+    const p = f.path.toLowerCase();
+    return (
+      !p.includes('.git/') &&
+      !p.includes('node_modules/') &&
+      !p.includes('__pycache__/') &&
+      !p.endsWith('.lock') &&
+      !p.endsWith('.min.js') &&
+      !p.endsWith('.png') &&
+      !p.endsWith('.jpg') &&
+      !p.endsWith('.svg')
+    );
+  });
 
-  for (const f of rawFiles) {
-    const id = normalizeFilePath(f.path);
-    const lang = detectLanguage(id);
-    const { loc, cyclomaticComplexity } = computeComplexityAndLoc(f.content, lang);
-    totalLoc += loc;
+  validFiles.forEach((f) => {
+    fileSet.add(f.path);
+    const base = f.path.split('/').pop()?.toLowerCase();
+    if (base) baseToFileMap.set(base, f.path);
+  });
 
-    nodes[id] = {
-      id,
-      name: id.split('/').pop() || id,
-      directory: getParentDir(id),
-      extension: id.slice(id.lastIndexOf('.')),
-      language: lang,
-      content: f.content,
+  // 1. Initialize Node Registry
+  validFiles.forEach((file) => {
+    const loc = Math.max(1, (file.content.match(/\n/g) || []).length);
+    const dir = file.path.includes('/')
+      ? file.path.substring(0, file.path.lastIndexOf('/'))
+      : 'root';
+
+    nodes[file.path] = {
+      id: file.path,
+      name: file.path.split('/').pop() || file.path,
+      directory: dir,
       loc,
-      cyclomaticComplexity,
       imports: [],
       importedBy: [],
-      rawImports: extractRawImports(f.content, lang),
+      pageRank: 0.15,
       inDegree: 0,
       outDegree: 0,
-      pageRank: 0,
       isDeadCode: false,
-      isEntryPoint: false,
-      circularGroupId: null
     };
-  }
+  });
 
-  const edgeMap = new Map<string, DependencyEdge>();
+  // 2. Parse Modules with Deterministic Symbol Lexer
+  const moduleTables = new Map<string, ModuleSymbolTable>();
+  validFiles.forEach((file) => {
+    const table = parseModuleSymbols(file.path, file.content);
+    moduleTables.set(file.path, table);
+  });
 
-  for (const id of allFileList) {
-    const node = nodes[id];
-    for (const raw of node.rawImports) {
-      const target = resolveImportToFileId(id, raw, node.language, allFileSet, allFileList);
-      if (target && target !== id && nodes[target]) {
-        if (!node.imports.includes(target)) node.imports.push(target);
-        if (!nodes[target].importedBy.includes(id)) nodes[target].importedBy.push(id);
-        const edgeId = `${id}->${target}`;
-        edgeMap.set(edgeId, { id: edgeId, source: id, target, isCircular: false });
-      }
+  // Canonical Target Path Resolver
+  function resolveTargetFile(sourcePath: string, rawDep: string): string | null {
+    if (fileSet.has(rawDep)) return rawDep;
+
+    const cleanDep = rawDep.replace(/^\.\//, '').replace(/^(\.\.\/)+/, '');
+    if (fileSet.has(cleanDep)) return cleanDep;
+
+    const exts = ['.ts', '.tsx', '.js', '.jsx', '.py', '.cpp', '.h', '.go', '.rs', '.java'];
+    for (const ext of exts) {
+      if (fileSet.has(cleanDep + ext)) return cleanDep + ext;
+      if (fileSet.has(rawDep + ext)) return rawDep + ext;
     }
-    node.outDegree = node.imports.length;
+
+    for (const ext of exts) {
+      const idxPath = `${cleanDep}/index${ext}`;
+      if (fileSet.has(idxPath)) return idxPath;
+      const pyInit = `${cleanDep}/__init__.py`;
+      if (fileSet.has(pyInit)) return pyInit;
+    }
+
+    const baseName = rawDep.split('/').pop()?.toLowerCase();
+    if (baseName && baseToFileMap.has(baseName)) {
+      return baseToFileMap.get(baseName)!;
+    }
+
+    return null;
   }
 
-  for (const id of allFileList) {
-    nodes[id].inDegree = nodes[id].importedBy.length;
-  }
+  // 3. Connect Graph Edges using Lexical Symbol Tracking
+  validFiles.forEach((file) => {
+    const table = moduleTables.get(file.path);
+    if (!table) return;
 
-  const pageRanks = computeGraphPageRank(nodes);
-  allFileList.forEach(id => (nodes[id].pageRank = pageRanks[id] ?? 0));
+    const resolvedTargets = new Set<string>();
 
-  const circularGroups = findCircularDependencies(nodes);
-  circularGroups.forEach((group, idx) => {
-    const gSet = new Set(group);
-    group.forEach(fid => { if (nodes[fid]) nodes[fid].circularGroupId = idx; });
-    edgeMap.forEach(e => {
-      if (gSet.has(e.source) && gSet.has(e.target)) e.isCircular = true;
+    table.directDependencies.forEach((dep) => {
+      const target = resolveTargetFile(file.path, dep);
+      if (target && target !== file.path) {
+        resolvedTargets.add(target);
+      }
+    });
+
+    resolvedTargets.forEach((targetPath) => {
+      nodes[file.path].imports.push(targetPath);
+      nodes[targetPath].importedBy.push(file.path);
+
+      edges.push({
+        id: `${file.path}->${targetPath}`,
+        source: file.path,
+        target: targetPath,
+        isCircular: false,
+      });
     });
   });
 
-  const deadFiles = detectDeadFiles(nodes);
+  // 4. In/Out Degree & True Dead Code Classification
+  Object.values(nodes).forEach((node) => {
+    node.inDegree = node.importedBy.length;
+    node.outDegree = node.imports.length;
+    if (node.inDegree === 0 && node.outDegree === 0) {
+      node.isDeadCode = true;
+    }
+  });
 
-  const godFiles = [...allFileList]
-    .sort((a, b) => (nodes[b].pageRank * 50 + nodes[b].inDegree * 3) - (nodes[a].pageRank * 50 + nodes[a].inDegree * 3))
-    .slice(0, 5);
+  // 5. Mathematical PageRank Kernel (R = d*M*R + (1-d)/N)
+  const N = Object.keys(nodes).length || 1;
+  const damping = 0.85;
+  const iterations = 20;
+
+  for (let it = 0; it < iterations; it++) {
+    Object.values(nodes).forEach((node) => {
+      let rankSum = 0;
+      node.importedBy.forEach((callerId) => {
+        const caller = nodes[callerId];
+        if (caller && caller.outDegree > 0) {
+          rankSum += caller.pageRank / caller.outDegree;
+        }
+      });
+      node.pageRank = (1 - damping) / N + damping * rankSum;
+    });
+  }
+
+  const maxRank = Math.max(...Object.values(nodes).map((n) => n.pageRank), 0.0001);
+  Object.values(nodes).forEach((n) => {
+    n.pageRank = Math.min(1.0, Math.max(0.05, n.pageRank / maxRank));
+  });
+
+  const godFiles = Object.values(nodes)
+    .sort((a, b) => b.pageRank * 2 + b.inDegree - (a.pageRank * 2 + a.inDegree))
+    .slice(0, 8)
+    .map((n) => n.id);
+
+  const deadFiles = Object.values(nodes)
+    .filter((n) => n.isDeadCode)
+    .map((n) => n.id);
+
+  const totalLoc = Object.values(nodes).reduce((acc, n) => acc + n.loc, 0);
 
   return {
     repoName,
-    scannedAt: Date.now(),
-    totalFiles: allFileList.length,
-    totalEdges: edgeMap.size,
+    totalFiles: Object.keys(nodes).length,
+    totalEdges: edges.length,
     totalLoc,
     nodes,
-    edges: Array.from(edgeMap.values()),
-    circularGroups,
+    edges,
+    godFiles,
     deadFiles,
-    godFiles
+    circularGroups: [],
   };
 }

@@ -1,38 +1,55 @@
-﻿export type SupportedLanguage = 'typescript' | 'javascript' | 'python' | 'cpp' | 'go' | 'other';
-
-export interface RawRepoFile {
+﻿export interface RawRepoFile {
   path: string;
   content: string;
   size: number;
 }
 
+export type SupportedLanguage = 
+  | 'typescript' 
+  | 'javascript' 
+  | 'python' 
+  | 'cpp' 
+  | 'c' 
+  | 'go' 
+  | 'rust' 
+  | 'java' 
+  | 'csharp' 
+  | 'unknown';
+
 export interface FileNode {
   id: string;
   name: string;
   directory: string;
-  extension: string;
-  language: SupportedLanguage;
-  content: string;
   loc: number;
-  cyclomaticComplexity: number;
   imports: string[];
   importedBy: string[];
-  rawImports: string[];
+  pageRank: number;
   inDegree: number;
   outDegree: number;
-  pageRank: number;
   isDeadCode: boolean;
-  isEntryPoint: boolean;
-  circularGroupId: number | null;
-  x?: number;
-  y?: number;
+  isEntryPoint?: boolean;
+  cyclomaticComplexity?: number;
+  circularGroupId?: string | number | null;
+  content?: string;
 }
 
-export interface DependencyEdge {
+export interface GraphEdge {
   id: string;
   source: string;
   target: string;
-  isCircular: boolean;
+  isCircular?: boolean;
+}
+
+export interface RepositoryGraph {
+  repoName: string;
+  totalFiles: number;
+  totalEdges: number;
+  totalLoc: number;
+  nodes: Record<string, FileNode>;
+  edges: GraphEdge[];
+  godFiles: string[];
+  deadFiles: string[];
+  circularGroups: Array<string[]>;
 }
 
 export interface BlastWave {
@@ -46,18 +63,18 @@ export interface BlastRadiusReport {
   blastPercentage: number;
   waves: BlastWave[];
   impactedFileMap: Record<string, number>;
-  severity: 'LOW' | 'MODERATE' | 'HIGH' | 'CRITICAL';
+  severity: 'CRITICAL' | 'HIGH' | 'MODERATE' | 'LOW';
 }
 
-export interface RepositoryGraph {
-  repoName: string;
-  scannedAt: number;
-  totalFiles: number;
-  totalEdges: number;
-  totalLoc: number;
-  nodes: Record<string, FileNode>;
-  edges: DependencyEdge[];
-  circularGroups: string[][];
-  deadFiles: string[];
-  godFiles: string[];
+export interface BlastWaveLevel {
+  waveIndex: number;
+  fileIds: string[];
+}
+
+export interface QualityGateAudit {
+  canMergeSafely: boolean;
+  breakingApiSurface: boolean;
+  highCentralityRisk: boolean;
+  circularDependencyImpact: boolean;
+  untestedFilesRatio: number;
 }

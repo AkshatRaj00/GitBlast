@@ -306,7 +306,7 @@ const ForceGraphCanvas = forwardRef<CanvasHandle, ForceGraphCanvasProps>(functio
 
         if (isImpacted) {
           // Shockwave Laser
-          ctx.strokeStyle = COLOR_ACCENT;
+          ctx.strokeStyle = '#ec4899';
           ctx.lineWidth = 2.4 / k;
           ctx.stroke();
         } else if (link.isRealImportEdge || isConnectedToFile) {
@@ -352,7 +352,7 @@ const ForceGraphCanvas = forwardRef<CanvasHandle, ForceGraphCanvasProps>(functio
           amberFill = '#f43f5e';
           glowColor = 'rgba(244, 63, 94, 0.9)';
         } else if (liveAlert) {
-          amberfill = COLOR_ACCENT;
+          amberFill = '#ec4899';
           glowColor = 'rgba(236, 72, 153, 0.8)';
         } else if (wave === 1) {
           amberFill = '#fb923c';

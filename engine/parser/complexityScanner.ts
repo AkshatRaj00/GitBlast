@@ -7,7 +7,7 @@ export function detectLanguage(filePath: string): SupportedLanguage {
   if (lower.endsWith('.py')) return 'python';
   if (lower.endsWith('.cpp') || lower.endsWith('.h') || lower.endsWith('.hpp')) return 'cpp';
   if (lower.endsWith('.go')) return 'go';
-  return 'other';
+  return 'unknown';
 }
 
 export function computeComplexityAndLoc(code: string, lang: SupportedLanguage) {

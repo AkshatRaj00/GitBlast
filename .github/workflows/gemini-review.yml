@@ -1,0 +1,45 @@
+name: Gemini pull request review
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+
+permissions:
+  contents: read
+  issues: write
+  pull-requests: write
+
+concurrency:
+  group: gemini-review-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  review:
+    # Secrets are not available to fork PRs. Keep fork contributions on the normal CI checks.
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Explain missing Gemini API key
+        if: env.GEMINI_API_KEY == ''
+        run: echo 'Add GEMINI_API_KEY under Settings > Secrets and variables > Actions to enable Gemini reviews.' >> "$GITHUB_STEP_SUMMARY"
+      - name: Review pull request with Gemini
+        if: env.GEMINI_API_KEY != ''
+        uses: google-github-actions/run-gemini-cli@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          gemini_api_key: ${{ secrets.GEMINI_API_KEY }}
+          github_pr_number: ${{ github.event.pull_request.number }}
+          prompt: >-
+            Review the changes in pull request #${{ github.event.pull_request.number }}.
+            Identify only actionable bugs, security issues, regressions, and missing
+            error handling. Verify each finding against the diff and repository context.
+            Post concise inline review comments for confirmed findings, with file and
+            line references. If there are no confirmed issues, post a short summary.
+            Do not modify files, push commits, approve, or merge the pull request.

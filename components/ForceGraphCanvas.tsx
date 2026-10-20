@@ -153,6 +153,7 @@ const ForceGraphCanvas = forwardRef<CanvasHandle, ForceGraphCanvasProps>(functio
     else {
       const files = folderGroups[activeFolder] || [];
       const nodeMap = new Map<string, any>();
+      const maxPageRank = Math.max(...(Object.values(graph.nodes) as Array<{ pageRank?: number }>).map((node) => node.pageRank || 0), 0.000001);
 
       // Center Reactor Core of this Folder
       const centerCore = {
@@ -172,14 +173,15 @@ const ForceGraphCanvas = forwardRef<CanvasHandle, ForceGraphCanvasProps>(functio
 
       files.forEach((fileNode, idx) => {
         const angle = (idx / Math.max(1, files.length)) * 2 * Math.PI;
-        const orbitDist = 130 + (1 - (fileNode.pageRank || 0)) * 130;
+        const relativeRank = (fileNode.pageRank || 0) / maxPageRank;
+        const orbitDist = 130 + (1 - relativeRank) * 130;
         const safeName = fileNode.name || fileNode.id.split('/').pop() || 'mod';
 
         const childNode = {
           ...fileNode,
           displayName: safeName,
           isFolder: false,
-          radius: Math.max(7, Math.min(18, 7 + (fileNode.pageRank || 0) * 14)),
+          radius: Math.max(7, Math.min(18, 7 + relativeRank * 11)),
           x: Math.cos(angle) * orbitDist,
           y: Math.sin(angle) * orbitDist,
         };
@@ -522,7 +524,7 @@ const ForceGraphCanvas = forwardRef<CanvasHandle, ForceGraphCanvasProps>(functio
             {!hoveredNode.isFolder && (
               <>
                 <span>Callers: <strong className="text-sky-400">{hoveredNode.inDegree}</strong></span>
-                <span>PR: <strong className="text-sky-300">{((hoveredNode.pageRank || 0) * 100).toFixed(0)}%</strong></span>
+                <span>Rank share: <strong className="text-sky-300">{((hoveredNode.pageRank || 0) * 100).toFixed(2)}%</strong></span>
               </>
             )}
           </div>

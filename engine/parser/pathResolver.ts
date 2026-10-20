@@ -26,11 +26,14 @@ export function resolveImportToFileId(
       const specParts = rawImport.split('/');
       for (const p of specParts) {
         if (p === '.') continue;
-        if (p === '..') baseParts.pop();
+        if (p === '..') {
+          if (baseParts.length === 0) return null;
+          baseParts.pop();
+        }
         else baseParts.push(p);
       }
       const candidate = normalizeFilePath(baseParts.join('/'));
-      for (const ext of ['.ts', '.tsx', '.js', '.jsx', '/index.ts', '/index.tsx', '/index.js']) {
+      for (const ext of ['.ts', '.tsx', '.mts', '.cts', '.js', '.jsx', '.mjs', '.cjs', '/index.ts', '/index.tsx', '/index.js', '/index.jsx']) {
         if (allFileSet.has(candidate + ext)) return candidate + ext;
       }
       if (allFileSet.has(candidate)) return candidate;
@@ -40,7 +43,7 @@ export function resolveImportToFileId(
       const stripped = rawImport.replace(/^(@\/|~\/)/, '');
       const candidates = [stripped, `src/${stripped}`, `app/${stripped}`];
       for (const c of candidates) {
-        for (const ext of ['', '.ts', '.tsx', '.js', '.jsx', '/index.ts', '/index.js']) {
+        for (const ext of ['', '.ts', '.tsx', '.mts', '.cts', '.js', '.jsx', '.mjs', '.cjs', '/index.ts', '/index.tsx', '/index.js', '/index.jsx']) {
           if (allFileSet.has(c + ext)) return c + ext;
         }
       }
@@ -74,12 +77,9 @@ export function resolveImportToFileId(
     if (allFileSet.has(slashPath + '.py')) return slashPath + '.py';
     if (allFileSet.has(slashPath + '/__init__.py')) return slashPath + '/__init__.py';
 
-    // Fuzzy scan filename
-    const baseName = slashPath.split('/').pop() || slashPath;
-    for (const f of allFileList) {
-      if (f.endsWith(`/${baseName}.py`) || f === `${baseName}.py`) {
-        return f;
-      }
+    const packageCandidates = [`${slashPath}.py`, `${slashPath}/__init__.py`];
+    for (const candidate of packageCandidates) {
+      if (allFileSet.has(candidate)) return candidate;
     }
   }
 
@@ -90,18 +90,43 @@ export function resolveImportToFileId(
     if (allFileSet.has(localHit)) return localHit;
     if (allFileSet.has(cleanSpec)) return cleanSpec;
 
-    const baseName = cleanSpec.split('/').pop() || cleanSpec;
-    for (const f of allFileList) {
-      if (f.endsWith(`/${baseName}`) || f === baseName) return f;
+    // Includes should resolve to the exact repository path. A same-name header in
+    // another directory is ambiguous, so it is intentionally left unresolved.
+  }
+
+  // 4. RUST MODULES
+  if (lang === 'rust') {
+    const isCrateRoot = rawImport.startsWith('crate/');
+    const modulePath = rawImport.replace(/^(crate|self|super)\//, '').replace(/^\.\//, '');
+    if (modulePath && !modulePath.includes('::')) {
+      const base = isCrateRoot
+        ? (allFileSet.has('src/lib.rs') || allFileSet.has('src/main.rs') ? 'src' : '')
+        : rawImport.startsWith('super/')
+        ? currentDir.split('/').slice(0, -1).join('/')
+        : currentDir;
+      const candidate = normalizeFilePath([base, modulePath].filter(Boolean).join('/'));
+      for (const path of [`${candidate}.rs`, `${candidate}/mod.rs`]) {
+        if (allFileSet.has(path)) return path;
+      }
     }
   }
 
-  // 4. GO PACKAGES
-  if (lang === 'go') {
-    for (const f of allFileList) {
-      const dir = getParentDir(f);
-      if (dir && rawImport.endsWith(dir)) return f;
+  // 5. JVM source files. Resolve only exact package paths, never by basename.
+  if (lang === 'java' || lang === 'kotlin') {
+    const candidate = rawImport.replace(/\./g, '/');
+    const extensions = lang === 'java' ? ['.java'] : ['.kt', '.kts'];
+    for (const file of allFileList) {
+      if (extensions.some((ext) => file.endsWith(`/${candidate}${ext}`) || file === `${candidate}${ext}`)) return file;
     }
+  }
+
+  // 6. Go packages
+  if (lang === 'go') {
+    const packageFiles = allFileList.filter((file) => {
+      const dir = getParentDir(file);
+      return dir && (rawImport === dir || rawImport.endsWith(`/${dir}`));
+    });
+    if (packageFiles.length === 1) return packageFiles[0];
   }
 
   return null;

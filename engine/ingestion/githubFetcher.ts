@@ -83,7 +83,7 @@ async function fetchViaZipball(
       });
 
       if (i % 80 === 0) {
-        onProg?.(`Unpacking in-memory AST units (${i + 1}/${targetEntries.length})...`);
+        onProg?.(`Indexing source files (${i + 1}/${targetEntries.length})...`);
       }
     }
 

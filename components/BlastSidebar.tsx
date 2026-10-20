@@ -446,16 +446,16 @@ export default function BlastSidebar({
                       </span>
                     ) : (
                       <span className="text-sky-400 flex items-center gap-1 font-semibold">
-                        <CheckCircle2 className="w-3.5 h-3.5" /> Safe
+                        <CheckCircle2 className="w-3.5 h-3.5" /> Below threshold
                       </span>
                     )}
                   </div>
 
                   <div className="p-2.5 rounded-lg bg-slate-900/60 border border-slate-800/80 flex items-center justify-between">
-                    <span className="text-slate-300">High-Centrality God Node</span>
+                    <span className="text-slate-300">High graph centrality</span>
                     {multiBlastReport.qualityGate.highCentralityRisk ? (
                       <span className="text-sky-400 flex items-center gap-1 font-semibold">
-                        <XCircle className="w-3.5 h-3.5" /> Critical Symbol
+                        <XCircle className="w-3.5 h-3.5" /> Review
                       </span>
                     ) : (
                       <span className="text-sky-400 flex items-center gap-1 font-semibold">
@@ -472,7 +472,7 @@ export default function BlastSidebar({
                       </span>
                     ) : (
                       <span className="text-sky-400 flex items-center gap-1 font-semibold">
-                        <CheckCircle2 className="w-3.5 h-3.5" /> Clean DAG
+                        <CheckCircle2 className="w-3.5 h-3.5" /> No cycle detected
                       </span>
                     )}
                   </div>

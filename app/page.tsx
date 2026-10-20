@@ -8,7 +8,6 @@ import BlastSidebar from '@/components/BlastSidebar';
 import CodeModal from '@/components/CodeModal';
 import DiffModal from '@/components/DiffModal';
 import ThinkingChamber from '@/components/ThinkingChamber';
-import JarvisHUD from '@/components/JarvisHUD';
 
 import { RawRepoFile, RepositoryGraph } from '@/types/graph.types';
 import { fetchGitHubRepositoryToRam } from '@/engine/ingestion/githubFetcher';
@@ -65,11 +64,11 @@ export default function GitBlastWorkspace() {
         saveGraphToClientStorage(workerGraph);
 
         if (workerGraph.godFiles.length > 0) {
-          const topGod = [workerGraph.godFiles[0]];
-          setSelectedFileIds(topGod);
-          const report = calculateMultiFileBlastRadius(topGod, workerGraph.nodes);
+          const topCentralityNode = [workerGraph.godFiles[0]];
+          setSelectedFileIds(topCentralityNode);
+          const report = calculateMultiFileBlastRadius(topCentralityNode, workerGraph.nodes);
           setMultiBlastReport(report);
-          setCognitiveAnalysis(synthesizeArchitecturalThoughts(topGod[0], workerGraph, report));
+          setCognitiveAnalysis(synthesizeArchitecturalThoughts(topCentralityNode[0], workerGraph, report));
         }
 
         fetchLiveInternetContext(workerGraph.repoName, Object.keys(workerGraph.nodes)).then(setInternetAlerts).catch(() => setInternetAlerts({}));
@@ -112,7 +111,7 @@ export default function GitBlastWorkspace() {
       setRawFilesMap(fMap);
 
       if (workerRef.current) {
-        // Offload 100% of the AST parsing & graph math to the worker thread
+        // Keep import extraction and graph calculations off the main thread.
         workerRef.current.postMessage({
           type: 'BUILD_GRAPH',
           repoName,
@@ -397,7 +396,6 @@ export default function GitBlastWorkspace() {
           }}
         />
       )}
-      <JarvisHUD graph={graph} selectedFile={graph?.nodes[selectedFileIds[0]] || null} blastReport={multiBlastReport} />
     </div>
   );
 }

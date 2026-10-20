@@ -78,7 +78,7 @@ export function generateArchitectureMarkdown(graph: RepositoryGraph): string {
       const ca = node.inDegree || 0;
       const ce = node.outDegree || 0;
       const instability = calculateInstability(ca, ce);
-      const pr = typeof node.pageRank === 'number' ? (node.pageRank * 100).toFixed(1) : '0.0';
+      const pr = typeof node.pageRank === 'number' ? (node.pageRank * 100).toFixed(2) : '0.00';
       return `| \`${fid}\` | ${ca} \vert{}${ce} | ${instability} \vert{}${pr}% |`;
     })
     .join('\n');
@@ -86,7 +86,7 @@ export function generateArchitectureMarkdown(graph: RepositoryGraph): string {
   // 2. Circular Loop Risk Analysis
   const circularInfo =
     graph.circularGroups.length === 0
-      ? 'Clean Directed Acyclic Graph. Zero circular dependencies detected.'
+      ? 'No cycles found among the imports resolved by the static scanner.'
       : graph.circularGroups
           .map((g, idx) => `### Cycle Group #${idx + 1} (${g.length} Files)\n` + g.map((f) => `- \`${f}\``).join('\n'))
           .join('\n\n');
@@ -97,28 +97,28 @@ export function generateArchitectureMarkdown(graph: RepositoryGraph): string {
 
   return `# Software Architecture & System Telemetry
 **Target Repository:** \`${graph.repoName}\`
-**Analysis Engine:** GitBlast Client-Side Compiler Kernel
+**Analysis Engine:** GitBlast static import graph analyzer
 
 ## 1. System Topology Overview
 | Metric | Value | Description |
 | :--- | :--- | :--- |
-| **Total Modules** | \`${graph.totalFiles}\` | Active compilation units analyzed in memory. |
-| **Dependency Edges** | \`${graph.totalEdges}\` | Syntactic connections (imports, includes, requires). |
-| **Codebase LOC** | \`${graph.totalLoc.toLocaleString()}\` | Total non-empty lines of code scanned. |
-| **Average Module LOC** | \`${avgLOC}\` | Mean complexity density per file. |
+| **Indexed Files** | \`${graph.totalFiles}\` | Files included in the scan. |
+| **Resolved Import Edges** | \`${graph.totalEdges}\` | Imports matched to files inside this repository. |
+| **Codebase LOC** | \`${graph.totalLoc.toLocaleString()}\` | Physical lines in indexed files. |
+| **Average File Lines** | \`${avgLOC}\` | Mean physical lines per indexed file. |
 | **Graph Density** | \`${density}\` | Ratio of actual edges to maximum theoretical connectivity. |
-| **Unreferenced Modules** | \`${graph.deadFiles.length}\` | Zero-caller orphan files flagged for pruning. |
+| **Unreferenced Candidates** | \`${graph.deadFiles.length}\` | Files isolated in the statically resolved import graph; manual verification is required. |
 
 ---
 
 ## 2. Core Architectural Pillars (Centrality Matrix)
-*Components with highest incoming gravity ($C_a$) and PageRank centrality.*
+*Files with the highest PageRank share in the statically resolved import graph.*
 
 | Component Path | Afferent ($C_a$) | Efferent ($C_e$) | Instability ($I$) | PageRank |
 | :--- | :---: | :---: | :---: | :---: |
-${topCoreFiles || '| _No god nodes identified_ | - | - | - | - |'}
+${topCoreFiles || '| _No centrality candidates identified_ | - | - | - | - |'}
 
-*Note: Instability ($I = \\frac{C_e}{C_a + C_e}$) evaluates architectural compliance with the Stable Dependencies Principle (SDP). Components near $0.0$ are foundational and must resist structural signature mutations.*
+*Note: Instability ($I = \\frac{C_e}{C_a + C_e}$) is a graph metric, not an architectural compliance verdict.*
 
 ---
 
@@ -127,10 +127,10 @@ ${circularInfo}
 
 ---
 
-## 4. Architectural Quality Gate Policies
-1. **Signature Stability:** Foundational nodes with $I < 0.2$ must undergo rigorous downstream regression audits before merging changes.
-2. **Blast Radius Threshold:** Any single commit triggering a downstream shockwave exceeding $15\%$ requires architectural review.
-3. **Acyclic Invariance:** Merges introducing new Strongly Connected Components (SCCs) are strictly blocked.
+## 4. Interpretation & Limitations
+- This report summarizes statically discovered imports; dynamic imports, reflection, framework conventions, and generated code may not be represented.
+- An unreferenced candidate is not proof that a file is safe to delete.
+- Graph reach and centrality describe dependency structure. They do not establish correctness, security, or test coverage.
 `;
 }
 

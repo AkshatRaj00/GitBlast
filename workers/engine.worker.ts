@@ -1,7 +1,7 @@
 ﻿/**
  * GitBlast Enterprise Compilation & Graph Kernel Web Worker
  * Runs 100% off-main-thread:
- * 1. Multi-Language AST Parsing & PageRank Centrality
+ * 1. Multi-Language Static Import Extraction & PageRank Centrality
  * 2. In-Memory Dual-CSR Typed Buffer Generation (G and G^T)
  * 3. Vectorized Multi-Source BFS Shockwave Engine
  * 4. Transitive Causal Path Extraction & Real-Time Telemetry
@@ -24,7 +24,7 @@ self.addEventListener('message', async (event: MessageEvent) => {
     try {
       const startTime = performance.now();
 
-      // 1. Compile AST Graph & Structural Nodes
+      // 1. Build the static import graph and structural metrics.
       const graph = buildRepositoryGraphFromFiles(repoName, files as RawRepoFile[]);
       cachedGraph = graph;
 
@@ -51,7 +51,7 @@ self.addEventListener('message', async (event: MessageEvent) => {
     } catch (err: any) {
       self.postMessage({
         type: 'BUILD_ERROR',
-        error: err.message || 'Worker thread compilation encountered an unhandled exception',
+        error: err.message || 'Worker thread graph analysis encountered an unhandled exception',
       });
     }
   }

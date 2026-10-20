@@ -1,10 +1,12 @@
 import { FileNode } from '@/types/graph.types';
 
 const ENTRY_PATTERNS = [
-  /(^|\/)(index|main|app|page|layout|route|server|cli|lib)\.(ts|tsx|js|jsx|py|go|cpp|c|rs|java|kt|cs)$/i,
+  /(^|\/)(index|main|app|page|layout|route|server|cli|lib|manage|wsgi|asgi|worker|background)\.(ts|tsx|js|jsx|py|go|cpp|c|rs|java|kt|cs)$/i,
   /\.(test|spec)\.(ts|tsx|js|jsx|py|go|rs|java|kt|cs)$/i,
-  /\.config\.(ts|js|mjs|cjs)$/i,
-  /(^|\/)(package|vite|next|webpack|rollup|jest|vitest)\.config\./i,
+  /(^|\/)[^/]+\.config\.(ts|tsx|js|mjs|cjs|json)$/i,
+  /(^|\/)(package|tsconfig|jsconfig|vite|next|webpack|rollup|jest|vitest|eslint|postcss|tailwind)\.config\./i,
+  /(^|\/)(package|tsconfig|jsconfig|composer|cargo|go|pyproject|requirements|makefile|dockerfile|procfile)(\.[^/]*)?$/i,
+  /(^|\/)(\.github\/workflows|\.gitlab|\.circleci|\.buildkite)(\/|$)/i,
 ];
 
 export function detectDeadFiles(nodes: Record<string, FileNode>): string[] {

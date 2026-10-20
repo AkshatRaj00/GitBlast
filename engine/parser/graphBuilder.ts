@@ -1,5 +1,8 @@
 ﻿import { RawRepoFile, RepositoryGraph, FileNode, GraphEdge } from '@/types/graph.types';
-import { parseModuleSymbols, ModuleSymbolTable } from './symbolResolver';
+import { detectDeadFiles } from '../math/deadCodeFinder';
+import { extractRawImports } from './multiLangTokenizer';
+import { detectLanguage } from './complexityScanner';
+import { normalizeFilePath, resolveImportToFileId } from './pathResolver';
 
 export function buildRepositoryGraphFromFiles(
   repoName: string,
@@ -10,7 +13,7 @@ export function buildRepositoryGraphFromFiles(
   const fileSet = new Set<string>();
 
   // Filter noise & binary artifacts
-  const validFiles = rawFiles.filter((f) => {
+  const validFiles = rawFiles.map((file) => ({ ...file, path: normalizeFilePath(file.path) })).filter((f) => {
     const p = f.path.toLowerCase();
     return (
       !p.includes('.git/') &&
@@ -20,7 +23,10 @@ export function buildRepositoryGraphFromFiles(
       !p.endsWith('.min.js') &&
       !p.endsWith('.png') &&
       !p.endsWith('.jpg') &&
-      !p.endsWith('.svg')
+      !p.endsWith('.svg') &&
+      !p.endsWith('.gif') &&
+      !p.endsWith('.webp') &&
+      !p.endsWith('.ico')
     );
   });
 
@@ -30,7 +36,7 @@ export function buildRepositoryGraphFromFiles(
 
   // 1. Initialize Node Registry
   validFiles.forEach((file) => {
-    const loc = Math.max(1, (file.content.match(/\n/g) || []).length);
+    const loc = file.content.length === 0 ? 0 : file.content.split(/\r\n|\r|\n/).length;
     const dir = file.path.includes('/')
       ? file.path.substring(0, file.path.lastIndexOf('/'))
       : 'root';
@@ -49,45 +55,13 @@ export function buildRepositoryGraphFromFiles(
     };
   });
 
-  // 2. Parse Modules with Deterministic Symbol Lexer
-  const moduleTables = new Map<string, ModuleSymbolTable>();
+  // 2. Resolve statically discoverable imports to exact files in this checkout.
+  const fileList = Array.from(fileSet);
   validFiles.forEach((file) => {
-    const table = parseModuleSymbols(file.path, file.content);
-    moduleTables.set(file.path, table);
-  });
-
-  // Canonical Target Path Resolver
-  function resolveTargetFile(sourcePath: string, rawDep: string): string | null {
-    if (fileSet.has(rawDep)) return rawDep;
-
-    const cleanDep = rawDep.replace(/^\.\//, '').replace(/^(\.\.\/)+/, '');
-    if (fileSet.has(cleanDep)) return cleanDep;
-
-    const exts = ['.ts', '.tsx', '.js', '.jsx', '.py', '.cpp', '.h', '.go', '.rs', '.java'];
-    for (const ext of exts) {
-      if (fileSet.has(cleanDep + ext)) return cleanDep + ext;
-      if (fileSet.has(rawDep + ext)) return rawDep + ext;
-    }
-
-    for (const ext of exts) {
-      const idxPath = `${cleanDep}/index${ext}`;
-      if (fileSet.has(idxPath)) return idxPath;
-      const pyInit = `${cleanDep}/__init__.py`;
-      if (fileSet.has(pyInit)) return pyInit;
-    }
-
-    return null;
-  }
-
-  // 3. Connect Graph Edges using Lexical Symbol Tracking
-  validFiles.forEach((file) => {
-    const table = moduleTables.get(file.path);
-    if (!table) return;
-
     const resolvedTargets = new Set<string>();
-
-    table.directDependencies.forEach((dep) => {
-      const target = resolveTargetFile(file.path, dep);
+    const language = detectLanguage(file.path);
+    extractRawImports(file.content, language).forEach((dep) => {
+      const target = resolveImportToFileId(file.path, dep, language, fileSet, fileList);
       if (target && target !== file.path) {
         resolvedTargets.add(target);
       }
@@ -106,22 +80,26 @@ export function buildRepositoryGraphFromFiles(
     });
   });
 
-  // 4. In/Out Degree & True Dead Code Classification
+  // 3. Degree metrics and conservative orphan candidates.
   Object.values(nodes).forEach((node) => {
     node.inDegree = node.importedBy.length;
     node.outDegree = node.imports.length;
-    if (node.inDegree === 0 && node.outDegree === 0) {
-      node.isDeadCode = true;
-    }
   });
+  const deadFiles = detectDeadFiles(nodes);
 
-  // 5. Mathematical PageRank Kernel (R = d*M*R + (1-d)/N)
+  // 4. PageRank with dangling-node redistribution; scores sum to 1.
   const N = Object.keys(nodes).length || 1;
   const damping = 0.85;
-  const iterations = 20;
+  const iterations = 60;
+  const tolerance = 1e-8;
+  Object.values(nodes).forEach((node) => { node.pageRank = 1 / N; });
 
   for (let it = 0; it < iterations; it++) {
     const nextRanks: Record<string, number> = {};
+    const danglingMass = Object.values(nodes)
+      .filter((node) => node.outDegree === 0)
+      .reduce((sum, node) => sum + node.pageRank, 0);
+    let rankDelta = 0;
     Object.values(nodes).forEach((node) => {
       let rankSum = 0;
       node.importedBy.forEach((callerId) => {
@@ -130,24 +108,17 @@ export function buildRepositoryGraphFromFiles(
           rankSum += caller.pageRank / caller.outDegree;
         }
       });
-      nextRanks[node.id] = (1 - damping) / N + damping * rankSum;
+      nextRanks[node.id] = (1 - damping) / N + damping * (rankSum + danglingMass / N);
+      rankDelta += Math.abs(nextRanks[node.id] - node.pageRank);
     });
     Object.values(nodes).forEach((node) => { node.pageRank = nextRanks[node.id]; });
+    if (rankDelta < tolerance) break;
   }
 
-  const maxRank = Math.max(...Object.values(nodes).map((n) => n.pageRank), 0.0001);
-  Object.values(nodes).forEach((n) => {
-    n.pageRank = Math.min(1.0, Math.max(0.05, n.pageRank / maxRank));
-  });
-
   const godFiles = Object.values(nodes)
-    .filter((n) => n.inDegree >= 2)
-    .sort((a, b) => b.pageRank * 2 + b.inDegree - (a.pageRank * 2 + a.inDegree))
+    .filter((n) => n.inDegree > 0)
+    .sort((a, b) => b.pageRank - a.pageRank || b.inDegree - a.inDegree)
     .slice(0, Math.min(8, Math.max(1, Math.ceil(N * 0.1))))
-    .map((n) => n.id);
-
-  const deadFiles = Object.values(nodes)
-    .filter((n) => n.isDeadCode)
     .map((n) => n.id);
 
   const totalLoc = Object.values(nodes).reduce((acc, n) => acc + n.loc, 0);
@@ -177,6 +148,9 @@ export function buildRepositoryGraphFromFiles(
     }
   };
   Object.keys(nodes).forEach((id) => { if (!indexById.has(id)) visit(id); });
+  circularGroups.forEach((group, groupIndex) => {
+    group.forEach((id) => { nodes[id].circularGroupId = groupIndex; });
+  });
   const cycleIds = new Set(circularGroups.flat());
   edges.forEach((edge) => { edge.isCircular = cycleIds.has(edge.source) && cycleIds.has(edge.target); });
 

@@ -1,6 +1,6 @@
 ﻿/**
- * GitBlast AST Compilation & Graph Worker Engine
- * Executes full Abstract Syntax Tree parsing, dependency resolution,
+ * GitBlast static import graph worker.
+ * Executes source import extraction, dependency resolution,
  * PageRank centrality computation, and topological sort off the main browser thread.
  */
 
@@ -11,16 +11,16 @@ import { RawRepoFile, RepositoryGraph } from '../types/graph.types';
 self.onmessage = async (e: MessageEvent) => {
   const { type = 'BUILD_GRAPH', repoName, files, options = {} } = e.data;
 
-  // 1. Full AST Graph Compilation
+  // 1. Static import graph compilation
   if (type === 'BUILD_GRAPH') {
     try {
       if (!files || !Array.isArray(files) || files.length === 0) {
-        throw new Error('AST Worker received empty or invalid files payload.');
+        throw new Error('Graph worker received an empty or invalid files payload.');
       }
 
       const startTime = performance.now();
 
-      // Compile AST graph across all supported languages (TS, JS, Python, C++, Go, Rust, Java)
+      // Extract statically discoverable imports across supported languages.
       const graph: RepositoryGraph = buildRepositoryGraphFromFiles(repoName, files as RawRepoFile[]);
 
       // Generate in-memory linear Dual-CSR matrix (Forward G and Reverse G^T)
@@ -45,7 +45,7 @@ self.onmessage = async (e: MessageEvent) => {
     } catch (err: any) {
       self.postMessage({
         type: 'GRAPH_ERROR',
-        error: err.message || 'AST Compilation failed in background worker thread.',
+        error: err.message || 'Static graph analysis failed in the background worker.',
       });
     }
   }
@@ -62,7 +62,7 @@ self.onmessage = async (e: MessageEvent) => {
     } catch (err: any) {
       self.postMessage({
         type: 'GRAPH_ERROR',
-        error: err.message || 'Module inspection failed in AST worker.',
+        error: err.message || 'Module inspection failed in the graph worker.',
       });
     }
   }

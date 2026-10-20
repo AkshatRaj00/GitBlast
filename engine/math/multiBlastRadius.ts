@@ -98,11 +98,15 @@ export function calculateMultiFileBlastRadius(
   const totalImpacted = Object.keys(impactedFileMap).length;
   const denominator = Math.max(1, Object.keys(nodes).length - uniqueTargets.length);
   const blastPercentage = Number(((totalImpacted / denominator) * 100).toFixed(1));
-  const highCentralityRisk = uniqueTargets.some((id) => (nodes[id]?.pageRank || 0) >= 0.55);
-  const circularDependencyImpact = uniqueTargets.some((id) => {
-    const groupId = nodes[id]?.circularGroupId;
-    return groupId !== undefined && groupId !== null;
+  const averagePageRank = 1 / Math.max(1, Object.keys(nodes).length);
+  const highCentralityRisk = uniqueTargets.some((id) => {
+    const node = nodes[id];
+    return Boolean(node && node.inDegree >= Math.max(5, Math.ceil(Math.sqrt(Object.keys(nodes).length))) &&
+      node.pageRank >= averagePageRank * 3);
   });
+  const circularDependencyImpact = uniqueTargets.some((id) =>
+    nodes[id]?.circularGroupId !== undefined && nodes[id]?.circularGroupId !== null
+  );
   const testLikeCount = Object.keys(impactedFileMap).filter((id) => /\.(test|spec)\.[^.]+$/i.test(id)).length;
   const testFileNameHeuristicRatio = totalImpacted > 0 ? Number((testLikeCount / totalImpacted).toFixed(2)) : 0;
 

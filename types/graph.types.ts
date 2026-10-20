@@ -27,6 +27,7 @@ export interface FileNode {
   pageRank: number;
   inDegree: number;
   outDegree: number;
+  /** Isolated by the statically resolved import graph; this is not proof of dead code. */
   isDeadCode: boolean;
   isEntryPoint?: boolean;
   cyclomaticComplexity?: number;

@@ -49,16 +49,11 @@ export default function ArchitectureVitals({
     if (!graph) {
       return { label: 'CONNECTING', style: 'bg-slate-800 text-slate-400 border-slate-700' };
     }
-    const deadRatio = (graph.deadFiles?.length || 0) / Math.max(1, graph.totalFiles || 1);
     const hasCycles = (graph.circularGroups?.length || 0) > 0;
 
-    if (hasCycles || deadRatio > 0.4) {
-      return { label: 'CRITICAL', style: 'bg-sky-500/10 text-sky-400 border-rose-500/30' };
-    }
-    if (deadRatio > 0.15) {
-      return { label: 'DEGRADED', style: 'bg-amber-500/10 text-sky-400 border-amber-500/30' };
-    }
-    return { label: 'OPTIMAL', style: 'bg-emerald-500/10 text-sky-400 border-emerald-500/30' };
+    return hasCycles
+      ? { label: 'CYCLES FOUND', style: 'bg-amber-500/10 text-amber-300 border-amber-500/30' }
+      : { label: 'NO CYCLES FOUND', style: 'bg-emerald-500/10 text-emerald-300 border-emerald-500/30' };
   }, [graph]);
 
   // 2. CONDITIONAL RETURN COMES AFTER ALL HOOKS
@@ -81,7 +76,7 @@ export default function ArchitectureVitals({
             System Vitals &amp; Topology
           </span>
           <span className={`text-[9px] px-2 py-0.5 rounded-full border font-bold tracking-wider ${healthStatus.style}`}>
-            HEALTH: {healthStatus.label}
+            TOPOLOGY: {healthStatus.label}
           </span>
         </div>
 
@@ -132,7 +127,7 @@ export default function ArchitectureVitals({
             }`}
           >
             <Eye className="w-3 h-3" />
-            Dead Code ({graph.deadFiles.length})
+            Unreferenced candidates ({graph.deadFiles.length})
           </button>
         </div>
       </div>
@@ -163,7 +158,9 @@ export default function ArchitectureVitals({
                 const node = graph.nodes[fid];
                 if (!node) return null;
                 const isSelected = selectedFileId === fid;
-                const pageRankPct = Math.round((node.pageRank || 0) * 100);
+                const pageRankPct = (node.pageRank || 0) * 100;
+                const maxPageRank = Math.max(...Object.values(graph.nodes).map((item) => item.pageRank || 0), 0.000001);
+                const relativeRank = ((node.pageRank || 0) / maxPageRank) * 100;
 
                 return (
                   <button
@@ -183,7 +180,7 @@ export default function ArchitectureVitals({
                       </div>
                       <div className="text-right shrink-0">
                         <span className="text-[10px] font-extrabold text-sky-400 block font-mono">
-                          PR {pageRankPct}%
+                          Share {(pageRankPct).toFixed(2)}%
                         </span>
                         <span className="text-[9px] text-slate-400 block">{node.inDegree} callers</span>
                       </div>
@@ -192,7 +189,7 @@ export default function ArchitectureVitals({
                     <div className="w-full h-1 bg-slate-800 rounded-full overflow-hidden mt-0.5">
                       <div
                         className="h-full bg-sky-500 rounded-full"
-                        style={{ width: `${Math.min(100, Math.max(5, pageRankPct))}%` }}
+                        style={{ width: `${Math.min(100, Math.max(5, relativeRank))}%` }}
                       />
                     </div>
                   </button>
@@ -255,7 +252,7 @@ export default function ArchitectureVitals({
           )}
         </div>
 
-        {/* C. Orphan & Dead Code Audit */}
+        {/* C. Unreferenced Module Candidates */}
         <div>
           <button
             type="button"
@@ -264,7 +261,7 @@ export default function ArchitectureVitals({
           >
             <span className="text-[11px] font-bold text-slate-400 flex items-center gap-2">
               <FileWarning className="w-3.5 h-3.5 text-sky-400" />
-              Dead Code Modules ({graph.deadFiles.length})
+              Unreferenced Candidates ({graph.deadFiles.length})
             </span>
             {expandedSection === 'dead' ? (
               <ChevronDown className="w-4 h-4 text-slate-400" />
@@ -281,14 +278,14 @@ export default function ArchitectureVitals({
                   type="text"
                   value={deadSearch}
                   onChange={(e) => setDeadSearch(e.target.value)}
-                  placeholder="Filter orphan modules..."
+                  placeholder="Filter unreferenced files..."
                   className="w-full bg-slate-900/80 text-slate-200 text-[10px] pl-8 pr-3 py-1.5 rounded-lg border border-slate-800 focus:border-slate-700 focus:outline-none transition"
                 />
               </div>
 
               <div className="max-h-52 overflow-y-auto space-y-1 pr-1">
                 {filteredDeadFiles.length === 0 ? (
-                  <p className="text-[11px] text-slate-500 py-1">Zero orphan modules matching criteria.</p>
+                  <p className="text-[11px] text-slate-500 py-1">No unreferenced files match this filter.</p>
                 ) : (
                   filteredDeadFiles.map((fid) => (
                     <button

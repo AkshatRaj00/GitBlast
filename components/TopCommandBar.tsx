@@ -36,6 +36,7 @@ function GitHubIcon({ className }: { className?: string }) {
 
 interface TopCommandBarProps {
   graph: RepositoryGraph | null;
+  rawFileBuffer: Record<string, string>;
   onScanGitHub: (repoUrl: string, token?: string) => void;
   onUploadLocalFolder: (files: FileList) => void;
   isLoading: boolean;
@@ -47,6 +48,7 @@ interface TopCommandBarProps {
 
 export default function TopCommandBar({
   graph,
+  rawFileBuffer,
   onScanGitHub,
   onUploadLocalFolder,
   isLoading,
@@ -73,7 +75,7 @@ export default function TopCommandBar({
     if (!graph || isExporting) return;
     setIsExporting(true);
     try {
-      const blob = await generatePrunedRepoZip(graph);
+      const blob = await generatePrunedRepoZip(graph, { rawFileBuffer });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;

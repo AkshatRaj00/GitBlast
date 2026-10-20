@@ -15,7 +15,7 @@ export class SelfHealingPatcher {
   public static synthesizeAdapter(
     brokenFile: string,
     deprecatedSymbols: string[],
-    newSignatures: Record<string, string>
+    _newSignatures: Record<string, string>
   ): HealingPatch {
     const safeSymbols = deprecatedSymbols.filter((symbol) => /^[A-Za-z_$][\w$]*$/.test(symbol));
 

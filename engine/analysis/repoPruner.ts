@@ -1,5 +1,5 @@
 import JSZip from 'jszip';
-import { RepositoryGraph, FileNode } from '@/types/graph.types';
+import { RepositoryGraph } from '@/types/graph.types';
 
 export interface PrunerOptions {
   rawFileBuffer?: Record<string, string>;
@@ -70,8 +70,6 @@ export async function generatePrunedRepoZip(
  * Generates an Enterprise Architectural Specification document (Markdown format).
  */
 export function generateArchitectureMarkdown(graph: RepositoryGraph): string {
-  const nodes = Object.values(graph.nodes);
-
   // 1. Architectural Pillars with Coupling & Instability Index
   const topCoreFiles = (graph.godFiles || [])
     .map((fid) => {
@@ -137,7 +135,7 @@ ${circularInfo}
 }
 
 /**
- * Generates an Enterprise Production CI/CD Workflow with AST regression testing.
+ * Generates a minimal workflow that runs the checks this repository defines.
  */
 export function generateGitHubActionYaml(): string {
   return [
@@ -168,7 +166,6 @@ export function generateGitHubActionYaml(): string {
     '          cache: npm',
     '      - run: npm ci',
     '      - run: npm run lint',
-    '      - run: npm test',
     '      - run: npm run build',
     '',
   ].join('\n');

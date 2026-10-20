@@ -2,18 +2,26 @@
 
 export async function POST(req: NextRequest) {
   try {
-    const { action, repoName, filePath, newContent, commitMessage, prTitle, prBody, prNumber, userToken } = await req.json();
+    const origin = req.headers.get('origin');
+    if (origin && origin !== req.nextUrl.origin) return NextResponse.json({ success: false, error: 'Cross-origin request rejected.' }, { status: 403 });
+    const raw = await req.text();
+    if (raw.length > 800_000) return NextResponse.json({ success: false, error: 'Request is too large.' }, { status: 413 });
+    const body = JSON.parse(raw) as Record<string, unknown>;
+    const { action, repoName, filePath, newContent, commitMessage, prTitle, prBody, prNumber, userToken } = body;
 
-    const token = userToken?.trim() || process.env.GITHUB_TOKEN?.trim();
-    if (!token) {
+    if (typeof userToken !== 'string' || !userToken.trim()) {
       return NextResponse.json(
-        { success: false, error: 'GitHub Token missing in .env.local (GITHUB_TOKEN)' },
+        { success: false, error: 'Provide a GitHub token with the required repository permissions.' },
         { status: 401 }
       );
     }
+    const token = userToken.trim();
+    if (typeof repoName !== 'string' || typeof action !== 'string') return NextResponse.json({ success: false, error: 'Invalid request.' }, { status: 400 });
 
     const cleanRepo = repoName.replace(/^https?:\/\/github\.com\//, '').replace(/\.git$/, '');
-    const [targetOwner, targetRepo] = cleanRepo.split('/');
+    const repoParts = cleanRepo.split('/');
+    if (repoParts.length !== 2 || !repoParts.every((part) => /^[A-Za-z0-9_.-]{1,100}$/.test(part))) return NextResponse.json({ success: false, error: 'Repository must be owner/name.' }, { status: 400 });
+    const [targetOwner, targetRepo] = repoParts;
 
     const headers: Record<string, string> = {
       Authorization: `Bearer ${token}`,
@@ -23,6 +31,9 @@ export async function POST(req: NextRequest) {
 
     // ACTION: CREATE REAL PR (Handles both own repos and external forks automatically)
     if (action === 'CREATE_PR') {
+      if (typeof filePath !== 'string' || !filePath || filePath.startsWith('/') || filePath.split('/').includes('..') || typeof newContent !== 'string' || typeof prTitle !== 'string') {
+        return NextResponse.json({ success: false, error: 'Invalid pull request content.' }, { status: 400 });
+      }
       // 1. Identify the authenticated user
       const userRes = await fetch('https://api.github.com/user', { headers });
       if (!userRes.ok) {
@@ -36,7 +47,7 @@ export async function POST(req: NextRequest) {
 
       const isOwnRepo = targetOwner.toLowerCase() === authUsername.toLowerCase();
       let workingOwner = targetOwner;
-      let workingRepo = targetRepo;
+      const workingRepo = targetRepo;
 
       // 2. If external repo (like facebook/react), automatically fork to user account
       if (!isOwnRepo) {

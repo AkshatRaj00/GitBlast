@@ -8,6 +8,7 @@ import BlastSidebar from '@/components/BlastSidebar';
 import CodeModal from '@/components/CodeModal';
 import DiffModal from '@/components/DiffModal';
 import ThinkingChamber from '@/components/ThinkingChamber';
+import JarvisHUD from '@/components/JarvisHUD';
 
 import { RawRepoFile, RepositoryGraph } from '@/types/graph.types';
 import { fetchGitHubRepositoryToRam } from '@/engine/ingestion/githubFetcher';
@@ -71,7 +72,7 @@ export default function GitBlastWorkspace() {
           setCognitiveAnalysis(synthesizeArchitecturalThoughts(topGod[0], workerGraph, report));
         }
 
-        fetchLiveInternetContext(workerGraph.repoName, Object.keys(workerGraph.nodes)).then(setInternetAlerts);
+        fetchLiveInternetContext(workerGraph.repoName, Object.keys(workerGraph.nodes)).then(setInternetAlerts).catch(() => setInternetAlerts({}));
 
       } else if (type === 'BUILD_ERROR') {
         alert(error || 'Worker background build error');
@@ -107,11 +108,7 @@ export default function GitBlastWorkspace() {
   const dispatchToWorker = useCallback(
     (repoName: string, files: RawRepoFile[]) => {
       const fMap: Record<string, string> = {};
-      files.forEach((f) => {
-        fMap[f.path] = f.content;
-        const bName = f.path.split('/').pop() || f.path;
-        fMap[bName] = f.content;
-      });
+      files.forEach((f) => { fMap[f.path] = f.content; });
       setRawFilesMap(fMap);
 
       if (workerRef.current) {
@@ -204,17 +201,19 @@ export default function GitBlastWorkspace() {
 
   const handleCutEdge = (edgeId: string) => {
     if (!graph) return;
-    setSeveredEdges([...severedEdges, edgeId]);
+    setSeveredEdges((previous) => previous.includes(edgeId) ? previous : [...previous, edgeId]);
     const [src, tgt] = edgeId.split('->');
-    if (graph.nodes[src] && graph.nodes[tgt]) {
-      graph.nodes[src].imports = graph.nodes[src].imports.filter((i: string) => i !== tgt);
-      graph.nodes[tgt].importedBy = graph.nodes[tgt].importedBy.filter((i: string) => i !== src);
-      graph.nodes[tgt].inDegree = graph.nodes[tgt].importedBy.length;
-    }
+    if (!graph.nodes[src] || !graph.nodes[tgt]) return;
+    const nodes = { ...graph.nodes,
+      [src]: { ...graph.nodes[src], imports: graph.nodes[src].imports.filter((id) => id !== tgt) },
+      [tgt]: { ...graph.nodes[tgt], importedBy: graph.nodes[tgt].importedBy.filter((id) => id !== src), inDegree: Math.max(0, graph.nodes[tgt].inDegree - 1) },
+    };
+    const updatedGraph = { ...graph, nodes, edges: graph.edges.filter((edge) => edge.id !== edgeId), totalEdges: Math.max(0, graph.totalEdges - 1) };
+    setGraph(updatedGraph);
     if (selectedFileIds.length > 0) {
-      const report = calculateMultiFileBlastRadius(selectedFileIds, graph.nodes);
+      const report = calculateMultiFileBlastRadius(selectedFileIds, nodes);
       setMultiBlastReport(report);
-      setCognitiveAnalysis(synthesizeArchitecturalThoughts(selectedFileIds[0], graph, report));
+      setCognitiveAnalysis(synthesizeArchitecturalThoughts(selectedFileIds[0], updatedGraph, report));
     }
   };
 
@@ -222,6 +221,7 @@ export default function GitBlastWorkspace() {
     <div className="flex flex-col h-screen w-screen overflow-hidden bg-[#06090f] font-sans antialiased">
       <TopCommandBar
         graph={graph}
+        rawFileBuffer={rawFilesMap}
         onScanGitHub={handleScanGitHub}
         onUploadLocalFolder={handleUploadLocalFolder}
         isLoading={isLoading}
@@ -387,7 +387,7 @@ export default function GitBlastWorkspace() {
       {inspectingFileId && graph && (
         <CodeModal
           fileNode={graph.nodes[inspectingFileId] || null}
-          fileContent={rawFilesMap[inspectingFileId] || rawFilesMap[inspectingFileId.split('/').pop() || ''] || ''}
+          fileContent={rawFilesMap[inspectingFileId] || ''}
           allNodes={graph.nodes}
           repoName={graph.repoName}
           onClose={() => setInspectingFileId(null)}
@@ -397,6 +397,7 @@ export default function GitBlastWorkspace() {
           }}
         />
       )}
+      <JarvisHUD graph={graph} selectedFile={graph?.nodes[selectedFileIds[0]] || null} blastReport={multiBlastReport} />
     </div>
   );
 }

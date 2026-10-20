@@ -42,7 +42,7 @@ jobs:
           echo '- These checks report status only; they do not certify security or merge safety.' >> "$GITHUB_STEP_SUMMARY"
       - name: Report actual check results on the pull request
         if: always() && github.event.pull_request.head.repo.fork == false
-        uses: actions/github-script@v7
+        uses: actions/github-script@v9
         env:
           LINT_OUTCOME: ${{ steps.lint.outcome }}
           BUILD_OUTCOME: ${{ steps.build.outcome }}

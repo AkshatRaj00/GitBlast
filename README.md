@@ -402,6 +402,14 @@ git push origin feat/your-feature
 
 For bugs, include the expected behavior, actual behavior, reproduction steps, and relevant logs. Never include API keys, access tokens, or private source code in public issues.
 
+## Contributors
+
+Thanks to everyone whose contributions have been merged into GitBlast. This live contributor panel reflects the repository's GitHub contributor history.
+
+<a href="https://github.com/AkshatRaj00/GitBlast/graphs/contributors">
+  <img src="https://contrib.rocks/image?repo=AkshatRaj00/GitBlast" alt="GitBlast contributors" />
+</a>
+
 ---
 
 ## 📄 License

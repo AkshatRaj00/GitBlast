@@ -1,13 +1,29 @@
 name: Daily repository health review
 
 on:
+  push:
+    branches: [main]
+    paths:
+      - 'app/**'
+      - 'components/**'
+      - 'engine/**'
+      - 'storage/**'
+      - 'workers/**'
+      - 'package.json'
+      - 'package-lock.json'
+      - 'tsconfig.json'
+      - '.github/workflows/daily-architectural-bot.yml'
   schedule:
-    - cron: '0 0 * * *'
+    - cron: '17 0 * * *'
   workflow_dispatch:
 
 permissions:
   contents: read
   issues: write
+
+concurrency:
+  group: daily-repository-health-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
   dependency-audit:
@@ -19,12 +35,17 @@ jobs:
         with:
           node-version: 22
           cache: npm
-      - run: npm ci
+      - name: Install locked dependencies
+        id: install
+        continue-on-error: true
+        run: npm ci
       - name: Production build and TypeScript check
+        if: steps.install.outcome == 'success'
         id: build
         continue-on-error: true
         run: npm run build
       - name: Run ESLint repository review
+        if: steps.install.outcome == 'success'
         id: lint
         shell: bash
         run: |
@@ -68,6 +89,7 @@ jobs:
               await github.rest.issues.update({ owner: context.repo.owner, repo: context.repo.repo, issue_number: issue.number, state: 'closed', state_reason: 'completed' });
             }
       - name: Scan production and development dependencies
+        if: steps.install.outcome == 'success'
         id: audit
         shell: bash
         run: |
@@ -79,6 +101,53 @@ jobs:
           const summary = findings.slice(0, 20).map(([name, item]) => `${name}: ${item.severity}; fix available: ${item.fixAvailable ? 'yes' : 'no'}`).join('\n') || 'No high or critical dependency advisories.';
           fs.appendFileSync(process.env.GITHUB_OUTPUT, `count=${findings.length}\nsummary<<EOF\n${summary}\nEOF\n`);
           NODE
+      - name: Publish daily health summary
+        if: always()
+        env:
+          INSTALL_OUTCOME: ${{ steps.install.outcome }}
+          BUILD_OUTCOME: ${{ steps.build.outcome }}
+          LINT_EXIT_CODE: ${{ steps.lint.outputs.exit_code }}
+          AUDIT_COUNT: ${{ steps.audit.outputs.count }}
+        shell: bash
+        run: |
+          {
+            echo '## Daily repository health review'
+            echo "- Dependency install: **${INSTALL_OUTCOME:-not run}**"
+            echo "- Production build and TypeScript: **${BUILD_OUTCOME:-not run}**"
+            if [[ -z "${LINT_EXIT_CODE}" ]]; then
+              echo '- ESLint: **not run**'
+            elif [[ "${LINT_EXIT_CODE}" == '0' ]]; then
+              echo '- ESLint: **passed**'
+            else
+              echo '- ESLint: **findings reported; see artifact and issue**'
+            fi
+            echo "- High or critical dependency advisories: **${AUDIT_COUNT:-not scanned}**"
+          } >> "$GITHUB_STEP_SUMMARY"
+      - name: Report dependency installation failure
+        if: steps.install.outcome == 'failure'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const title = 'Daily dependency installation failed';
+            const body = `The scheduled repository health review could not run because npm ci failed on ${context.sha}. Review the workflow run logs and resolve the install error.`;
+            try {
+              await github.rest.issues.createLabel({ owner: context.repo.owner, repo: context.repo.repo, name: 'daily-install-failure', color: 'b60205' });
+            } catch (error) {
+              if (error.status !== 422) throw error;
+            }
+            const { data: issues } = await github.rest.issues.listForRepo({ owner: context.repo.owner, repo: context.repo.repo, state: 'open', labels: 'daily-install-failure', per_page: 100 });
+            if (!issues.some((issue) => issue.title === title)) {
+              await github.rest.issues.create({ owner: context.repo.owner, repo: context.repo.repo, title, body, labels: ['daily-install-failure'] });
+            }
+      - name: Close resolved dependency installation issue
+        if: steps.install.outcome == 'success'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { data: issues } = await github.rest.issues.listForRepo({ owner: context.repo.owner, repo: context.repo.repo, state: 'open', labels: 'daily-install-failure', per_page: 100 });
+            for (const issue of issues.filter((item) => item.title === 'Daily dependency installation failed')) {
+              await github.rest.issues.update({ owner: context.repo.owner, repo: context.repo.repo, issue_number: issue.number, state: 'closed', state_reason: 'completed' });
+            }
       - name: Store dependency audit report
         if: steps.audit.outputs.count != '0'
         uses: actions/upload-artifact@v4

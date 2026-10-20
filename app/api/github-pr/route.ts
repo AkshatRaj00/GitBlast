@@ -1,5 +1,12 @@
 ﻿import { NextRequest, NextResponse } from 'next/server';
 
+const GITHUB_API_ORIGIN = 'https://api.github.com';
+
+function githubApiUrl(...segments: string[]): string {
+  const path = segments.map((segment) => encodeURIComponent(segment)).join('/');
+  return new URL(`/${path}`, GITHUB_API_ORIGIN).toString();
+}
+
 export async function POST(req: NextRequest) {
   try {
     const origin = req.headers.get('origin');
@@ -18,9 +25,14 @@ export async function POST(req: NextRequest) {
     const token = userToken.trim();
     if (typeof repoName !== 'string' || typeof action !== 'string') return NextResponse.json({ success: false, error: 'Invalid request.' }, { status: 400 });
 
-    const cleanRepo = repoName.replace(/^https?:\/\/github\.com\//, '').replace(/\.git$/, '');
+    const cleanRepo = repoName.trim().replace(/^https?:\/\/github\.com\//i, '').replace(/\.git$/i, '');
     const repoParts = cleanRepo.split('/');
-    if (repoParts.length !== 2 || !repoParts.every((part) => /^[A-Za-z0-9_.-]{1,100}$/.test(part))) return NextResponse.json({ success: false, error: 'Repository must be owner/name.' }, { status: 400 });
+    if (
+      repoParts.length !== 2 ||
+      !/^[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?$/.test(repoParts[0]) ||
+      !/^[A-Za-z0-9_.-]{1,100}$/.test(repoParts[1]) ||
+      repoParts[1] === '.' || repoParts[1] === '..'
+    ) return NextResponse.json({ success: false, error: 'Repository must be owner/name.' }, { status: 400 });
     const [targetOwner, targetRepo] = repoParts;
 
     const headers: Record<string, string> = {
@@ -31,11 +43,16 @@ export async function POST(req: NextRequest) {
 
     // ACTION: CREATE REAL PR (Handles both own repos and external forks automatically)
     if (action === 'CREATE_PR') {
-      if (typeof filePath !== 'string' || !filePath || filePath.startsWith('/') || filePath.split('/').includes('..') || typeof newContent !== 'string' || typeof prTitle !== 'string') {
+      const fileSegments = typeof filePath === 'string' ? filePath.split('/') : [];
+      if (
+        typeof filePath !== 'string' || !filePath || filePath.startsWith('/') ||
+        fileSegments.some((part) => !part || part === '.' || part === '..' || part.includes('\\') || /[\u0000-\u001f\u007f]/.test(part)) ||
+        typeof newContent !== 'string' || typeof prTitle !== 'string'
+      ) {
         return NextResponse.json({ success: false, error: 'Invalid pull request content.' }, { status: 400 });
       }
       // 1. Identify the authenticated user
-      const userRes = await fetch('https://api.github.com/user', { headers });
+      const userRes = await fetch(githubApiUrl('user'), { headers });
       if (!userRes.ok) {
         return NextResponse.json(
           { success: false, error: 'GitHub Token invalid or expired. Check permissions.' },
@@ -52,7 +69,7 @@ export async function POST(req: NextRequest) {
       // 2. If external repo (like facebook/react), automatically fork to user account
       if (!isOwnRepo) {
         console.log(`[GitHub-PR] External repo detected. Ensuring fork on ${authUsername}/${targetRepo}...`);
-        const forkRes = await fetch(`https://api.github.com/repos/${targetOwner}/${targetRepo}/forks`, {
+        const forkRes = await fetch(githubApiUrl('repos', targetOwner, targetRepo, 'forks'), {
           method: 'POST',
           headers,
         });
@@ -64,21 +81,21 @@ export async function POST(req: NextRequest) {
       }
 
       // 3. Get default branch sha
-      const repoMetaRes = await fetch(`https://api.github.com/repos/${workingOwner}/${workingRepo}`, { headers });
+      const repoMetaRes = await fetch(githubApiUrl('repos', workingOwner, workingRepo), { headers });
       if (!repoMetaRes.ok) {
         throw new Error(`Could not access ${workingOwner}/${workingRepo}. Token needs 'repo' permission.`);
       }
       const repoMeta = await repoMetaRes.json();
       const defaultBranch = repoMeta.default_branch || 'main';
 
-      const refRes = await fetch(`https://api.github.com/repos/${workingOwner}/${workingRepo}/git/ref/heads/${defaultBranch}`, { headers });
+      const refRes = await fetch(githubApiUrl('repos', workingOwner, workingRepo, 'git', 'ref', 'heads', String(defaultBranch)), { headers });
       const refData = await refRes.json();
       const baseSha = refData.object?.sha;
       if (!baseSha) throw new Error('Could not resolve branch head SHA.');
 
       // 4. Create unique branch: gitblast-patch-[timestamp]
       const branchName = `gitblast-patch-${Date.now()}`;
-      const createRefRes = await fetch(`https://api.github.com/repos/${workingOwner}/${workingRepo}/git/refs`, {
+      const createRefRes = await fetch(githubApiUrl('repos', workingOwner, workingRepo, 'git', 'refs'), {
         method: 'POST',
         headers,
         body: JSON.stringify({ ref: `refs/heads/${branchName}`, sha: baseSha }),
@@ -90,14 +107,16 @@ export async function POST(req: NextRequest) {
 
       // 5. Get existing file sha (if updating existing file)
       let fileSha: string | undefined = undefined;
-      const fileRes = await fetch(`https://api.github.com/repos/${workingOwner}/${workingRepo}/contents/${filePath}?ref=${branchName}`, { headers });
+      const fileUrl = new URL(githubApiUrl('repos', workingOwner, workingRepo, 'contents', ...fileSegments));
+      fileUrl.searchParams.set('ref', branchName);
+      const fileRes = await fetch(fileUrl, { headers });
       if (fileRes.ok) {
         const fileJson = await fileRes.json();
         fileSha = fileJson.sha;
       }
 
       // 6. Commit updated content
-      const commitRes = await fetch(`https://api.github.com/repos/${workingOwner}/${workingRepo}/contents/${filePath}`, {
+      const commitRes = await fetch(githubApiUrl('repos', workingOwner, workingRepo, 'contents', ...fileSegments), {
         method: 'PUT',
         headers,
         body: JSON.stringify({
@@ -115,7 +134,7 @@ export async function POST(req: NextRequest) {
 
       // 7. Open Pull Request on the target repository
       const headBranch = isOwnRepo ? branchName : `${authUsername}:${branchName}`;
-      const prRes = await fetch(`https://api.github.com/repos/${targetOwner}/${targetRepo}/pulls`, {
+      const prRes = await fetch(githubApiUrl('repos', targetOwner, targetRepo, 'pulls'), {
         method: 'POST',
         headers,
         body: JSON.stringify({
@@ -141,7 +160,10 @@ export async function POST(req: NextRequest) {
 
     // ACTION: MERGE PR
     if (action === 'MERGE_PR') {
-      const mergeRes = await fetch(`https://api.github.com/repos/${targetOwner}/${targetRepo}/pulls/${prNumber}/merge`, {
+      if (typeof prNumber !== 'number' || !Number.isSafeInteger(prNumber) || prNumber < 1) {
+        return NextResponse.json({ success: false, error: 'Pull request number must be a positive integer.' }, { status: 400 });
+      }
+      const mergeRes = await fetch(githubApiUrl('repos', targetOwner, targetRepo, 'pulls', String(prNumber), 'merge'), {
         method: 'PUT',
         headers,
         body: JSON.stringify({ commit_title: `Merge PR #${prNumber} via GitBlast`, merge_method: 'squash' }),

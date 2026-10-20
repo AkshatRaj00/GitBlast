@@ -55,7 +55,7 @@ jobs:
           cat lint-report.txt
       - name: Store ESLint report
         if: steps.lint.outputs.exit_code != '0'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: daily-eslint-report
           path: lint-report.txt
@@ -150,7 +150,7 @@ jobs:
             }
       - name: Store dependency audit report
         if: steps.audit.outputs.count != '0'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: daily-dependency-audit-report
           path: audit-report.json

@@ -102,7 +102,7 @@ export default function CodeModal({
             <span>Imported By: <strong className="text-rose-400">{fileNode.importedBy.length}</strong></span>
           </div>
           <div className="text-[10px] text-slate-500">
-            Real AST In-Memory Buffer
+            In-memory source file
           </div>
         </div>
       </div>

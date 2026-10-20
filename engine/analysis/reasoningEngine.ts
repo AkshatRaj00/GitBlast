@@ -19,7 +19,7 @@ export interface CognitiveAnalysisResult {
   targetNodeId: string;
   metrics: ArchitecturalMetrics;
   thoughtChain: ThoughtStep[];
-  verdict: 'SAFE_TO_MODIFY' | 'REQUIRES_REFACTOR' | 'CRITICAL_BOTTLENECK';
+  verdict: 'LOW_GRAPH_RISK' | 'REQUIRES_REVIEW' | 'HIGH_GRAPH_RISK';
   recommendation: string;
   containmentProtocol: {
     rule: string;
@@ -77,7 +77,7 @@ export function synthesizeArchitecturalThoughts(
       targetNodeId: targetFileId,
       metrics: defaultMetrics,
       thoughtChain: [],
-      verdict: 'SAFE_TO_MODIFY',
+      verdict: 'LOW_GRAPH_RISK',
       recommendation: 'Target node unavailable in current Abstract Syntax Tree matrix.',
       containmentProtocol: {
         rule: 'REJECT_ACTION',
@@ -110,7 +110,7 @@ export function synthesizeArchitecturalThoughts(
   // =========================================================================
   thoughtChain.push({
     phase: 'OBSERVATION',
-    description: `Tokenized AST structure for [${node.name}]. Afferent Coupling (Ca): ${ca}, Efferent Coupling (Ce): ${ce}.`,
+    description: `Import graph metrics for [${node.name}]. Direct importers (Ca): ${ca}, dependencies (Ce): ${ce}.`,
     telemetry: `LOC: ${node.loc} | Instability Index (I): ${instability} | PageRank: ${((node.pageRank || 0) * 100).toFixed(1)}% | Tier: ${topologicalTier}`,
   });
 
@@ -142,13 +142,13 @@ export function synthesizeArchitecturalThoughts(
     (e) => (e.source === targetFileId || e.target === targetFileId) && e.isCircular
   );
 
-  let deductionVerdict: CognitiveAnalysisResult['verdict'] = 'SAFE_TO_MODIFY';
-  let deductionText = 'Low regression surface. Structural mutations contained within local compilation unit.';
+  let deductionVerdict: CognitiveAnalysisResult['verdict'] = 'LOW_GRAPH_RISK';
+  let deductionText = 'Few downstream dependencies were detected by the import graph heuristic. This is not a safety guarantee.';
   let preMergeChecks: string[] = ['Run targeted unit test suite.'];
 
   if (isGodFile || blastPct > 20 || (ca > 15 && instability < 0.2)) {
-    deductionVerdict = 'CRITICAL_BOTTLENECK';
-    deductionText = `Critical infrastructural failure risk. Blast radius (${blastPct}%) and inward coupling (Ca=${ca}) exceed strict architecture safety gates.`;
+    deductionVerdict = 'HIGH_GRAPH_RISK';
+    deductionText = `High graph exposure estimate: ${blastPct}% downstream reach and ${ca} direct importers. Review before changing this module.`;
     preMergeChecks = [
       'Lock public exported function signatures and parameter types.',
       'Introduce adapter/facade layer before deprecating legacy methods.',
@@ -156,9 +156,9 @@ export function synthesizeArchitecturalThoughts(
       'Mandate multi-owner architectural peer review before merge.',
     ];
   } else if (isCircular || blastPct > 5 || ca > 4) {
-    deductionVerdict = 'REQUIRES_REFACTOR';
-    deductionText = `Intermediate coupling risk detected. ${
-      isCircular ? 'Circular import cycle detected in AST loop. ' : ''
+    deductionVerdict = 'REQUIRES_REVIEW';
+    deductionText = `Intermediate graph risk estimate detected. ${
+      isCircular ? 'Circular import cycle detected by the import parser. ' : ''
     }Transitive blast propagates through ${impactedCount} dependencies.`;
     preMergeChecks = [
       'Extract shared interface/types into a neutral upstream module.',
@@ -176,11 +176,11 @@ export function synthesizeArchitecturalThoughts(
   // =========================================================================
   // PHASE 4: SURGICAL ACTION (Actionable Containment Protocol)
   // =========================================================================
-  let actionAdvice = 'Module is topologically isolated. Direct commits safe; no structural refactor required.';
+  let actionAdvice = 'The current graph detected limited downstream reach. Review code and run relevant checks before changing it.';
 
-  if (deductionVerdict === 'CRITICAL_BOTTLENECK') {
+  if (deductionVerdict === 'HIGH_GRAPH_RISK') {
     actionAdvice = `SURGICAL FREEZE: Apply Open-Closed Principle (OCP) on [${node.name}]. Extend through interface wrappers or forwarders; do not alter existing runtime signatures.`;
-  } else if (deductionVerdict === 'REQUIRES_REFACTOR') {
+  } else if (deductionVerdict === 'REQUIRES_REVIEW') {
     actionAdvice = isCircular
       ? `LOOP ISOLATION: Break cyclic edge on [${node.name}]. Inject dependency via constructor or parameter injection.`
       : `CONTAINMENT: Extract caller contracts into standalone type definitions to prevent ripple across downstream dependents.`;
@@ -199,7 +199,7 @@ export function synthesizeArchitecturalThoughts(
     verdict: deductionVerdict,
     recommendation: actionAdvice,
     containmentProtocol: {
-      rule: deductionVerdict === 'CRITICAL_BOTTLENECK' ? 'ARCHITECTURAL_FREEZE' : deductionVerdict === 'REQUIRES_REFACTOR' ? 'CONDITIONAL_REVIEW' : 'FAST_TRACK',
+      rule: deductionVerdict === 'HIGH_GRAPH_RISK' ? 'ARCHITECTURAL_REVIEW' : deductionVerdict === 'REQUIRES_REVIEW' ? 'CONDITIONAL_REVIEW' : 'REVIEW_AND_TEST',
       preMergeChecks,
     },
   };

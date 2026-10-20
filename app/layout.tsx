@@ -3,7 +3,7 @@ import './globals.css';
 
 export const metadata: Metadata = {
   title: 'GitBlast — Autonomous Architecture & Blast Radius Engine',
-  description: 'Client-side AST dependency mapping, topological blast-radius, and deep codebase telemetry.',
+  description: 'Client-side import graph mapping and heuristic change impact analysis.',
 };
 
 export default function RootLayout({

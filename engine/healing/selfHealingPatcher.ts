@@ -1,7 +1,7 @@
 ﻿/**
  * GitBlast Autonomous Self-Healing Engine
- * Synthesizes surgical architectural adapters, facades, and interface proxies
- * to contain downstream blast cascades automatically without human intervention.
+ * Produces draft adapter scaffolds for human review. Generated code is not a
+ * working patch and carries no measured blast-reduction guarantee.
  */
 
 export interface HealingPatch {
@@ -21,14 +21,16 @@ export class SelfHealingPatcher {
 
     const generatedForwarders = safeSymbols
       .map((sym) => {
+        const signature = String(_newSignatures[sym] || 'unspecified').replace(/[\r\n]/g, ' ');
         return `
 /**
  * @deprecated Auto-synthesized by GitBlast Self-Healing Engine.
- * Safely forwards legacy call-sites to prevent downstream crash.
+ * Draft only; review and implement before use.
+ * Proposed replacement signature (review required): ${signature}
  */
 export function ${sym}(...args: any[]) {
   console.warn('[GitBlast Self-Healing] Legacy call intercepted on: ${sym}');
-  // TODO: Replace this placeholder with a reviewed implementation.
+  // Draft adapter only: replace this return value and test the callers.
   return undefined;
 }`;
       })

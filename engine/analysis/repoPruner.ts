@@ -165,7 +165,6 @@ export function generateGitHubActionYaml(): string {
     '          node-version: 22',
     '          cache: npm',
     '      - run: npm ci',
-    '      - run: npm run lint',
     '      - run: npm run build',
     '',
   ].join('\n');

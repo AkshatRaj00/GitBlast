@@ -13,9 +13,9 @@ export default function ThinkingChamber({ analysis }: ThinkingChamberProps) {
   if (!analysis || analysis.thoughtChain.length === 0) return null;
 
   const verdictStyles = {
-    SAFE_TO_MODIFY: 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30',
-    REQUIRES_REFACTOR: 'bg-amber-500/10 text-amber-400 border-amber-500/30',
-    CRITICAL_BOTTLENECK: 'bg-rose-500/10 text-rose-400 border-rose-500/30',
+    LOW_GRAPH_RISK: 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30',
+    REQUIRES_REVIEW: 'bg-amber-500/10 text-amber-400 border-amber-500/30',
+    HIGH_GRAPH_RISK: 'bg-rose-500/10 text-rose-400 border-rose-500/30',
   }[analysis.verdict];
 
   return (

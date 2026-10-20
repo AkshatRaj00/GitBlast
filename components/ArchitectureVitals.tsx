@@ -66,7 +66,7 @@ export default function ArchitectureVitals({
     return (
       <aside className="w-84 bg-[#030712]/95 backdrop-blur-xl border-r border-slate-800/80 p-6 text-slate-500 text-xs font-mono flex flex-col items-center justify-center text-center">
         <Radio className="w-6 h-6 text-slate-700 animate-pulse mb-3" />
-        <span className="tracking-wide">Awaiting AST Telemetry Stream...</span>
+        <span className="tracking-wide">Waiting for an import graph...</span>
       </aside>
     );
   }
@@ -98,7 +98,7 @@ export default function ArchitectureVitals({
           </div>
           <div className="bg-slate-900/60 border border-slate-800/80 rounded-xl p-2.5 text-center shadow-inner">
             <div className="text-sm font-black text-sky-400 tracking-tight">{graph.totalEdges}</div>
-            <div className="text-[9px] text-slate-400 uppercase font-medium mt-0.5">AST Edges</div>
+            <div className="text-[9px] text-slate-400 uppercase font-medium mt-0.5">Import edges</div>
           </div>
           <div className="bg-slate-900/60 border border-slate-800/80 rounded-xl p-2.5 text-center shadow-inner">
             <div className="text-sm font-black text-sky-400 tracking-tight">
@@ -224,7 +224,7 @@ export default function ArchitectureVitals({
             <div className="p-3.5 pt-0 space-y-2.5">
               {graph.circularGroups.length === 0 ? (
                 <div className="p-3 rounded-xl bg-emerald-950/20 border border-emerald-500/30 text-[11px] text-emerald-300 leading-relaxed">
-                  ✓ Clean DAG. Zero cyclic import loops detected in AST.
+                  No cycles detected by the current import parser. This heuristic may miss dynamic imports.
                 </div>
               ) : (
                 graph.circularGroups.map((group, idx) => (

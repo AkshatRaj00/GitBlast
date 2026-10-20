@@ -71,7 +71,7 @@ jobs:
               if (error.status !== 422) throw error;
             }
             const title = 'ESLint findings need attention';
-            const body = `The scheduled ESLint review found issues on ${context.sha}. Download the `daily-eslint-report` artifact from this workflow run for the full output. The PR review workflow reports the same check on changes.`;
+            const body = `The scheduled ESLint review found issues on ${context.sha}. Download the daily-eslint-report artifact from this workflow run for the full output. The PR review workflow reports the same check on changes.`;
             const { data: issues } = await github.rest.issues.listForRepo({ owner: context.repo.owner, repo: context.repo.repo, state: 'open', labels: 'code-quality', per_page: 100 });
             const existing = issues.find((issue) => issue.title === title);
             if (existing) {

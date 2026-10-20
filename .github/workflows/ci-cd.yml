@@ -22,5 +22,8 @@ jobs:
       - name: Install Dependencies
         run: npm ci
 
-      - name: Run Strict TypeScript & Production Build
+      - name: Run lint checks
+        run: npm run lint
+
+      - name: Run production build and TypeScript checks
         run: npm run build

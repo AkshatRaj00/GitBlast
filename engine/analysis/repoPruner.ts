@@ -1,54 +1,25 @@
-﻿import JSZip from 'jszip';
+import JSZip from 'jszip';
 import { RepositoryGraph, FileNode } from '@/types/graph.types';
 
 export interface PrunerOptions {
-  preserveConfigs?: boolean;
   rawFileBuffer?: Record<string, string>;
-  maxPruneLimit?: number;
 }
 
-export interface PruningAuditSummary {
-  originalFiles: number;
-  prunedFilesCount: number;
-  preservedFilesCount: number;
-  bytesSavedEstimate: number;
-  integrityVerified: boolean;
-}
-
-/**
- * Validates whether a dead file is safe to prune without breaking dynamic runtime entrypoints.
- */
 function isSafeToPrune(filePath: string): boolean {
-  const p = filePath.toLowerCase();
-  const criticalPatterns = [
-    'package.json',
-    'tsconfig',
-    'dockerfile',
-    'readme',
-    'license',
-    'next.config',
-    'vite.config',
-    'webpack.config',
-    '.env',
-    'requirements.txt',
-    'setup.py',
-    'go.mod',
-    'cargo.toml',
+  const path = filePath.toLowerCase();
+  const protectedPatterns = [
+    'package.json', 'tsconfig', 'dockerfile', 'readme', 'license',
+    'next.config', 'vite.config', 'webpack.config', '.env',
+    'requirements.txt', 'setup.py', 'go.mod', 'cargo.toml',
   ];
-  return !criticalPatterns.some((pattern) => p.includes(pattern));
+  return !protectedPatterns.some((pattern) => path.includes(pattern));
 }
 
-/**
- * Computes Martin's Instability Metric: I = Ce / (Ca + Ce)
- */
 function calculateInstability(ca: number, ce: number): number {
   if (ca + ce === 0) return 0;
   return Number((ce / (ca + ce)).toFixed(3));
 }
 
-/**
- * Generates an Enterprise Slimmed Repository Archive excluding verified unreferenced dead modules.
- */
 export async function generatePrunedRepoZip(
   graph: RepositoryGraph,
   options: PrunerOptions = {},
@@ -56,60 +27,45 @@ export async function generatePrunedRepoZip(
 ): Promise<Blob> {
   const zip = new JSZip();
   const buffer = options.rawFileBuffer || {};
-
-  // 1. Strict Dead File Filter
-  const candidateDeadFiles = (graph.deadFiles || []).filter(isSafeToPrune);
-  const deadSet = new Set(candidateDeadFiles);
-
-  const activeNodes = Object.values(graph.nodes).filter((n) => !deadSet.has(n.id));
-  const total = activeNodes.length;
-
-  let totalBytesSaved = 0;
-
-  // 2. Pack Verified Clean Files from In-Memory Buffer
-  for (let i = 0; i < total; i++) {
-    const node = activeNodes[i];
-    if (i % 20 === 0) {
-      onProg?.(`Packaging deterministic tree (${i + 1}/${total})...`);
-    }
-
-    const content = buffer[node.id] || buffer[node.id.split('/').pop() || ''] || `// Module: ${node.id}\n// LOC: ${node.loc}\n`;
-    totalBytesSaved += (node.loc || 10) * 32;
-    zip.file(node.id, content);
+  const sourceFiles = Object.keys(buffer);
+  if (sourceFiles.length === 0) {
+    throw new Error('Source content is unavailable. Scan the repository again before exporting.');
   }
 
-  // 3. Compile Audit Manifest
-  const auditReport = `# GitBlast Enterprise Repository Pruning Audit
-**Generated:** ${new Date().toISOString()}
-**Engine:** GitBlast Static AST Tree-Shaker (Deterministic Mode)
+  const candidateSet = new Set((graph.deadFiles || []).filter(isSafeToPrune));
+  const omittedFiles = sourceFiles.filter((path) => candidateSet.has(path));
+  const includedFiles = sourceFiles.filter((path) => !candidateSet.has(path));
 
-## Executive Summary
-- **Original Source Files:** ${graph.totalFiles}
-- **Pruned Dead Modules:** ${candidateDeadFiles.length}
-- **Preserved Functional Files:** ${total}
-- **Clean Reduction Ratio:** ${((candidateDeadFiles.length / Math.max(1, graph.totalFiles)) * 100).toFixed(2)}%
-- **Preserved Source LOC:** ${graph.totalLoc}
-- **Cyclic Loops Remaining:** ${graph.circularGroups.length}
+  for (let i = 0; i < includedFiles.length; i++) {
+    const path = includedFiles[i];
+    const content = buffer[path];
+    if (typeof content !== 'string') throw new Error('Missing original source content for ' + path);
+    if (i % 20 === 0) onProg?.('Packaging source files (' + (i + 1) + '/' + includedFiles.length + ')...');
+    zip.file(path, content);
+  }
 
-## Verification Status
-- [x] Zero breaking package configuration removals.
-- [x] Abstract Syntax Tree DAG integrity maintained.
-- [x] Runtime entrypoints fully preserved.
+  const auditReport = '# GitBlast Source Archive Review\n' +
+    '**Generated:** ' + new Date().toISOString() + '\n' +
+    '**Analysis:** Static import-graph heuristic\n\n' +
+    '## Summary\n' +
+    '- Imported source files: ' + sourceFiles.length + '\n' +
+    '- Isolated-module candidates omitted: ' + omittedFiles.length + '\n' +
+    '- Source files included: ' + includedFiles.length + '\n' +
+    '- Detected dependency cycles: ' + graph.circularGroups.length + '\n\n' +
+    '## Limitations\n' +
+    '- Candidate detection is heuristic; this archive is not proven safe to run or deploy.\n' +
+    '- Only file types accepted by the importer are included; unsupported files and static assets may be absent.\n' +
+    '- Review the archive and run the project tests before using it.\n\n' +
+    (omittedFiles.length ? '## Omitted isolated-module candidates\n' + omittedFiles.map((path) => '- ' + path).join('\n') : 'No isolated-module candidates were omitted.');
 
-### Pruned Dead Code Registry:
-${candidateDeadFiles.length > 0 ? candidateDeadFiles.map((f) => `- \`${f}\``).join('\n') : '_Zero dead modules detected; entire tree is actively referenced._'}
-`;
-
-  zip.file('GITBLAST_PRUNING_MANIFEST.md', auditReport);
-
-  onProg?.('Compressing memory archive into ZIP...');
-  return await zip.generateAsync({
+  zip.file('GITBLAST_ARCHIVE_REVIEW.md', auditReport);
+  onProg?.('Compressing source archive...');
+  return zip.generateAsync({
     type: 'blob',
     compression: 'DEFLATE',
     compressionOptions: { level: 9 },
   });
 }
-
 /**
  * Generates an Enterprise Architectural Specification document (Markdown format).
  */
@@ -184,71 +140,36 @@ ${circularInfo}
  * Generates an Enterprise Production CI/CD Workflow with AST regression testing.
  */
 export function generateGitHubActionYaml(): string {
-  return `name: "GitBlast Architectural Quality Gate"
-
-on:
-  pull_request:
-    branches: [ "main", "master", "develop" ]
-  push:
-    branches: [ "main", "master" ]
-
-concurrency:
-  group: \${{ github.workflow }}-\${{ github.ref }}
-  cancel-in-progress: true
-
-jobs:
-  architectural-integrity:
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    permissions:
-      contents: read
-      pull-requests: write
-
-    steps:
-      - name: Checkout Source Code
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Setup Node.js Runtime
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-
-      - name: Execute AST Topology Audit
-        id: ast-audit
-        run: |
-          echo "=================================================="
-          echo "🚀 Starting GitBlast Abstract Syntax Tree Audit"
-          echo "=================================================="
-          
-          # Compute Git Diff files
-          MODIFIED_FILES=$(git diff --name-only origin/\${{ github.base_ref || 'main' }}...HEAD)
-          echo "Modified Files in PR:"
-          echo "$MODIFIED_FILES"
-          
-          # Verify configuration file integrity
-          if echo "$MODIFIED_FILES" | grep -E "(types/|config/|core/)"; then
-            echo "⚠️ HIGH-RISK: Foundational architecture files modified."
-          fi
-          
-          echo "✅ AST Graph Verification: Passed. Zero new circular import cycles detected."
-
-      - name: Annotate PR with Architecture Risk Verdict
-        if: github.event_name == 'pull_request'
-        uses: actions/github-script@v7
-        with:
-          script: |
-            const comment = \`### 🛡️ GitBlast Architecture Quality Gate: PASSED
-            - **Blast Radius Status:** Validated (< 15% shockwave limit)
-            - **Circular Imports:** Zero cyclic loops detected
-            - **Structural Integrity:** Approved for autonomous merge\`;
-            
-            github.rest.issues.createComment({
-              issue_number: context.payload.pull_request.number,
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              body: comment
-            });
-`;
+  return [
+    'name: GitBlast CI',
+    '',
+    'on:',
+    '  pull_request:',
+    '    branches: [main, master]',
+    '  push:',
+    '    branches: [main, master]',
+    '',
+    'permissions:',
+    '  contents: read',
+    '',
+    'concurrency:',
+    '  group: ' + '$' + '{{ github.workflow }}-' + '$' + '{{ github.ref }}',
+    '  cancel-in-progress: true',
+    '',
+    'jobs:',
+    '  verify:',
+    '    runs-on: ubuntu-latest',
+    '    timeout-minutes: 15',
+    '    steps:',
+    '      - uses: actions/checkout@v4',
+    '      - uses: actions/setup-node@v4',
+    '        with:',
+    '          node-version: 22',
+    '          cache: npm',
+    '      - run: npm ci',
+    '      - run: npm run lint',
+    '      - run: npm test',
+    '      - run: npm run build',
+    '',
+  ].join('\n');
 }

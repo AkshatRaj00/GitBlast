@@ -8,7 +8,6 @@ export function buildRepositoryGraphFromFiles(
   const nodes: Record<string, FileNode> = {};
   const edges: GraphEdge[] = [];
   const fileSet = new Set<string>();
-  const baseToFileMap = new Map<string, string>();
 
   // Filter noise & binary artifacts
   const validFiles = rawFiles.filter((f) => {
@@ -27,8 +26,6 @@ export function buildRepositoryGraphFromFiles(
 
   validFiles.forEach((f) => {
     fileSet.add(f.path);
-    const base = f.path.split('/').pop()?.toLowerCase();
-    if (base) baseToFileMap.set(base, f.path);
   });
 
   // 1. Initialize Node Registry
@@ -45,7 +42,7 @@ export function buildRepositoryGraphFromFiles(
       loc,
       imports: [],
       importedBy: [],
-      pageRank: 0.15,
+      pageRank: 0,
       inDegree: 0,
       outDegree: 0,
       isDeadCode: false,
@@ -77,11 +74,6 @@ export function buildRepositoryGraphFromFiles(
       if (fileSet.has(idxPath)) return idxPath;
       const pyInit = `${cleanDep}/__init__.py`;
       if (fileSet.has(pyInit)) return pyInit;
-    }
-
-    const baseName = rawDep.split('/').pop()?.toLowerCase();
-    if (baseName && baseToFileMap.has(baseName)) {
-      return baseToFileMap.get(baseName)!;
     }
 
     return null;
@@ -129,6 +121,7 @@ export function buildRepositoryGraphFromFiles(
   const iterations = 20;
 
   for (let it = 0; it < iterations; it++) {
+    const nextRanks: Record<string, number> = {};
     Object.values(nodes).forEach((node) => {
       let rankSum = 0;
       node.importedBy.forEach((callerId) => {
@@ -137,8 +130,9 @@ export function buildRepositoryGraphFromFiles(
           rankSum += caller.pageRank / caller.outDegree;
         }
       });
-      node.pageRank = (1 - damping) / N + damping * rankSum;
+      nextRanks[node.id] = (1 - damping) / N + damping * rankSum;
     });
+    Object.values(nodes).forEach((node) => { node.pageRank = nextRanks[node.id]; });
   }
 
   const maxRank = Math.max(...Object.values(nodes).map((n) => n.pageRank), 0.0001);
@@ -147,8 +141,9 @@ export function buildRepositoryGraphFromFiles(
   });
 
   const godFiles = Object.values(nodes)
+    .filter((n) => n.inDegree >= 2)
     .sort((a, b) => b.pageRank * 2 + b.inDegree - (a.pageRank * 2 + a.inDegree))
-    .slice(0, 8)
+    .slice(0, Math.min(8, Math.max(1, Math.ceil(N * 0.1))))
     .map((n) => n.id);
 
   const deadFiles = Object.values(nodes)
@@ -156,6 +151,34 @@ export function buildRepositoryGraphFromFiles(
     .map((n) => n.id);
 
   const totalLoc = Object.values(nodes).reduce((acc, n) => acc + n.loc, 0);
+
+  const circularGroups: string[][] = [];
+  let nextIndex = 0;
+  const indexById = new Map<string, number>();
+  const lowById = new Map<string, number>();
+  const stack: string[] = [];
+  const onStack = new Set<string>();
+  const visit = (id: string) => {
+    indexById.set(id, nextIndex); lowById.set(id, nextIndex++);
+    stack.push(id); onStack.add(id);
+    for (const target of nodes[id].imports) {
+      if (!indexById.has(target)) {
+        visit(target);
+        lowById.set(id, Math.min(lowById.get(id)!, lowById.get(target)!));
+      } else if (onStack.has(target)) {
+        lowById.set(id, Math.min(lowById.get(id)!, indexById.get(target)!));
+      }
+    }
+    if (lowById.get(id) === indexById.get(id)) {
+      const component: string[] = [];
+      let member: string;
+      do { member = stack.pop()!; onStack.delete(member); component.push(member); } while (member !== id);
+      if (component.length > 1 || nodes[id].imports.includes(id)) circularGroups.push(component);
+    }
+  };
+  Object.keys(nodes).forEach((id) => { if (!indexById.has(id)) visit(id); });
+  const cycleIds = new Set(circularGroups.flat());
+  edges.forEach((edge) => { edge.isCircular = cycleIds.has(edge.source) && cycleIds.has(edge.target); });
 
   return {
     repoName,
@@ -166,6 +189,6 @@ export function buildRepositoryGraphFromFiles(
     edges,
     godFiles,
     deadFiles,
-    circularGroups: [],
+    circularGroups,
   };
 }

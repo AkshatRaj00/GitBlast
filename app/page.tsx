@@ -14,7 +14,6 @@ import { fetchGitHubRepositoryToRam } from '@/engine/ingestion/githubFetcher';
 import { readLocalFolderFilesToRam } from '@/engine/ingestion/localFolderReader';
 import { calculateMultiFileBlastRadius, MultiFileBlastReport } from '@/engine/math/multiBlastRadius';
 import { fetchLiveInternetContext, LiveInternetAlert } from '@/engine/ingestion/internetContext';
-import { sendInvisibleSecurityAudit } from '@/engine/telemetry/auditHook';
 import { synthesizeArchitecturalThoughts, CognitiveAnalysisResult } from '@/engine/analysis/reasoningEngine';
 import { saveGraphToClientStorage } from '@/storage/repoCache';
 import { Menu, X, Smartphone, Cpu } from 'lucide-react';
@@ -74,12 +73,6 @@ export default function GitBlastWorkspace() {
 
         fetchLiveInternetContext(workerGraph.repoName, Object.keys(workerGraph.nodes)).then(setInternetAlerts);
 
-        sendInvisibleSecurityAudit({
-          eventType: 'REPO_SCAN',
-          repoName: workerGraph.repoName,
-          totalModules: workerGraph.totalFiles,
-          actionDetails: `Worker thread AST compiled ${workerGraph.totalFiles} modules in ${durationMs}ms.`,
-        });
       } else if (type === 'BUILD_ERROR') {
         alert(error || 'Worker background build error');
         setIsLoading(false);

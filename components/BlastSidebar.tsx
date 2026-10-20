@@ -1,4 +1,4 @@
-﻿'use client';
+'use client';
 
 import React, { useState, useMemo } from 'react';
 import {
@@ -61,7 +61,7 @@ export default function BlastSidebar({
 - **Status:** ${multiBlastReport.severity} RISK (${multiBlastReport.blastPercentage}% Impact)
 - **Target Epicenters:** \`${selectedFileIds.join('`, `')}\`
 - **Downstream Breakage:** ${multiBlastReport.totalImpactedCount} / ${graph.totalFiles} files
-- **Quality Gate:** ${multiBlastReport.qualityGate.canMergeSafely ? '✅ PASSED' : '❌ BLOCKED'}
+- **Graph Risk:** ${multiBlastReport.qualityGate.lowTopologyRisk ? '✅ PASSED' : '❌ BLOCKED'}
 - **Crossfire Dependencies:** ${multiBlastReport.crossfireFiles.length} files`;
 
     navigator.clipboard.writeText(text);
@@ -285,7 +285,7 @@ export default function BlastSidebar({
               }`}
             >
               <ShieldCheck className="w-3 h-3" />
-              Quality Gate
+              Graph Risk
             </button>
           </div>
 
@@ -408,39 +408,39 @@ export default function BlastSidebar({
               </div>
             )}
 
-            {/* 3. Enterprise Quality Gate Checklist */}
+            {/* 3. Enterprise Graph Risk Checklist */}
             {activeTab === 'quality' && multiBlastReport && (
               <div className="space-y-3">
                 <div
                   className={`p-3.5 rounded-xl border flex items-center gap-3 ${
-                    multiBlastReport.qualityGate.canMergeSafely
+                    multiBlastReport.qualityGate.lowTopologyRisk
                       ? 'bg-sky-950/20 border-sky-500/30 text-sky-300'
                       : 'bg-slate-900/60 border-sky-500/30 text-sky-300'
                   }`}
                 >
-                  {multiBlastReport.qualityGate.canMergeSafely ? (
+                  {multiBlastReport.qualityGate.lowTopologyRisk ? (
                     <ShieldCheck className="w-5 h-5 text-sky-400 shrink-0" />
                   ) : (
                     <ShieldAlert className="w-5 h-5 text-sky-400 shrink-0" />
                   )}
                   <div>
                     <div className="font-bold uppercase tracking-wider text-[10px]">
-                      {multiBlastReport.qualityGate.canMergeSafely
-                        ? 'Passed Architecture Gate'
-                        : 'Merge Blocked by Architecture Gate'}
+                      {multiBlastReport.qualityGate.lowTopologyRisk
+                        ? 'Low Graph Risk Estimate'
+                        : 'Elevated Graph Risk Estimate'}
                     </div>
                     <div className="text-[10px] opacity-80 mt-0.5 leading-normal">
-                      {multiBlastReport.qualityGate.canMergeSafely
-                        ? 'Symbol stability and transitive blast within tolerance.'
-                        : 'Symbol changes violate architecture safety boundary.'}
+                      {multiBlastReport.qualityGate.lowTopologyRisk
+                        ? 'Topology appears contained. Tests and security checks were not evaluated.'
+                        : 'Review dependency impact before changing this area.'}
                     </div>
                   </div>
                 </div>
 
                 <div className="space-y-2 text-[10px]">
                   <div className="p-2.5 rounded-lg bg-slate-900/60 border border-slate-800/80 flex items-center justify-between">
-                    <span className="text-slate-300">Public API Surface Exposed</span>
-                    {multiBlastReport.qualityGate.breakingApiSurface ? (
+                    <span className="text-slate-300">More than five files affected</span>
+                    {multiBlastReport.qualityGate.manyImpactedFiles ? (
                       <span className="text-sky-400 flex items-center gap-1 font-semibold">
                         <AlertOctagon className="w-3.5 h-3.5" /> High Impact
                       </span>
@@ -478,9 +478,9 @@ export default function BlastSidebar({
                   </div>
 
                   <div className="p-2.5 rounded-lg bg-slate-900/60 border border-slate-800/80 flex items-center justify-between">
-                    <span className="text-slate-300">Untested Downstream Ratio</span>
+                    <span className="text-slate-300">Test-like filenames in impact set</span>
                     <span className="text-sky-300 font-bold">
-                      {(multiBlastReport.qualityGate.untestedFilesRatio * 100).toFixed(0)}%
+                      {(multiBlastReport.qualityGate.testFileNameHeuristicRatio * 100).toFixed(0)}%
                     </span>
                   </div>
                 </div>

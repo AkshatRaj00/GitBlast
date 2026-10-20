@@ -1,11 +1,4 @@
-﻿import { BlastWave, FileNode } from '@/types/graph.types';
-
-export interface CausalPathTrace {
-  targetFileId: string;
-  sourceFileId: string;
-  path: string[]; // Chain: [source, dep1, dep2, target]
-  depth: number;
-}
+import { BlastWave, FileNode } from '@/types/graph.types';
 
 export interface MultiFileBlastReport {
   selectedFileIds: string[];
@@ -13,15 +6,15 @@ export interface MultiFileBlastReport {
   blastPercentage: number;
   waves: BlastWave[];
   impactedFileMap: Record<string, number>;
-  crossfireFiles: string[]; // Files broken by multiple modified files
-  causalPaths: Record<string, string[]>; // targetId -> [source, intermediate, target]
+  crossfireFiles: string[];
+  causalPaths: Record<string, string[]>;
   severity: 'LOW' | 'MODERATE' | 'HIGH' | 'CRITICAL';
   qualityGate: {
-    breakingApiSurface: boolean;
+    manyImpactedFiles: boolean;
     highCentralityRisk: boolean;
     circularDependencyImpact: boolean;
-    untestedFilesRatio: number;
-    canMergeSafely: boolean;
+    testFileNameHeuristicRatio: number;
+    lowTopologyRisk: boolean;
   };
 }
 
@@ -29,60 +22,58 @@ export function calculateMultiFileBlastRadius(
   targetFileIds: string[],
   nodes: Record<string, FileNode>
 ): MultiFileBlastReport {
-  const totalFiles = Object.keys(nodes).length;
-  if (!targetFileIds.length || totalFiles <= 1) {
-    return {
-      selectedFileIds: targetFileIds,
-      totalImpactedCount: 0,
-      blastPercentage: 0,
-      waves: [],
-      impactedFileMap: {},
-      crossfireFiles: [],
-      causalPaths: {},
-      severity: 'LOW',
-      qualityGate: {
-        breakingApiSurface: false,
-        highCentralityRisk: false,
-        circularDependencyImpact: false,
-        untestedFilesRatio: 0,
-        canMergeSafely: true,
-      },
-    };
-  }
-
-  const visited = new Set<string>(targetFileIds);
-  const impactedFileMap: Record<string, number> = {};
-  const fileHitCount: Record<string, number> = {};
-  const causalParentMap: Record<string, string> = {}; // child -> parent
-  const waves: BlastWave[] = [];
-
-  targetFileIds.forEach((id) => {
-    const node = nodes[id];
-    if (node) {
-      node.importedBy.forEach((dep) => {
-        fileHitCount[dep] = (fileHitCount[dep] || 0) + 1;
-      });
-    }
+  const uniqueTargets = Array.from(new Set(targetFileIds)).filter((id) => Boolean(nodes[id]));
+  const emptyReport = (): MultiFileBlastReport => ({
+    selectedFileIds: uniqueTargets,
+    totalImpactedCount: 0,
+    blastPercentage: 0,
+    waves: [],
+    impactedFileMap: {},
+    crossfireFiles: [],
+    causalPaths: {},
+    severity: 'LOW',
+    qualityGate: {
+      manyImpactedFiles: false,
+      highCentralityRisk: false,
+      circularDependencyImpact: false,
+      testFileNameHeuristicRatio: 0,
+      lowTopologyRisk: true,
+    },
   });
 
-  let currentFrontier = [...targetFileIds];
+  if (!uniqueTargets.length || Object.keys(nodes).length <= uniqueTargets.length) return emptyReport();
+
+  // Count each selected source's reachable consumers to find true multi-source overlap.
+  const sourceHitCount: Record<string, number> = {};
+  for (const sourceId of uniqueTargets) {
+    const sourceVisited = new Set<string>([sourceId]);
+    const queue = [sourceId];
+    for (let cursor = 0; cursor < queue.length; cursor++) {
+      for (const consumerId of nodes[queue[cursor]]?.importedBy || []) {
+        if (!nodes[consumerId] || sourceVisited.has(consumerId)) continue;
+        sourceVisited.add(consumerId);
+        queue.push(consumerId);
+        sourceHitCount[consumerId] = (sourceHitCount[consumerId] || 0) + 1;
+      }
+    }
+  }
+
+  const visited = new Set<string>(uniqueTargets);
+  const impactedFileMap: Record<string, number> = {};
+  const causalParentMap: Record<string, string> = {};
+  const waves: BlastWave[] = [];
+  let currentFrontier = [...uniqueTargets];
   let depth = 1;
 
   while (currentFrontier.length > 0) {
     const nextFrontier: string[] = [];
-    for (const fid of currentFrontier) {
-      const node = nodes[fid];
-      if (!node) continue;
-
-      for (const depId of node.importedBy) {
-        if (!visited.has(depId) && nodes[depId]) {
-          visited.add(depId);
-          nextFrontier.push(depId);
-          impactedFileMap[depId] = depth;
-          if (!causalParentMap[depId]) {
-            causalParentMap[depId] = fid;
-          }
-        }
+    for (const fileId of currentFrontier) {
+      for (const consumerId of nodes[fileId]?.importedBy || []) {
+        if (!nodes[consumerId] || visited.has(consumerId)) continue;
+        visited.add(consumerId);
+        nextFrontier.push(consumerId);
+        impactedFileMap[consumerId] = depth;
+        if (!causalParentMap[consumerId]) causalParentMap[consumerId] = fileId;
       }
     }
     if (nextFrontier.length > 0) {
@@ -92,52 +83,49 @@ export function calculateMultiFileBlastRadius(
     currentFrontier = nextFrontier;
   }
 
-  // Reconstruct Causal Path chains: target -> source
   const causalPaths: Record<string, string[]> = {};
-  Object.keys(impactedFileMap).forEach((impactedId) => {
-    const chain: string[] = [impactedId];
-    let curr = impactedId;
-    while (causalParentMap[curr]) {
-      const p = causalParentMap[curr];
-      chain.unshift(p);
-      curr = p;
+  for (const impactedId of Object.keys(impactedFileMap)) {
+    const path = [impactedId];
+    let current = impactedId;
+    while (causalParentMap[current]) {
+      current = causalParentMap[current];
+      path.unshift(current);
     }
-    causalPaths[impactedId] = chain;
-  });
+    causalPaths[impactedId] = path;
+  }
 
-  const crossfireFiles = Object.keys(fileHitCount).filter((fid) => fileHitCount[fid] > 1);
+  const crossfireFiles = Object.keys(sourceHitCount).filter((id) => sourceHitCount[id] > 1);
   const totalImpacted = Object.keys(impactedFileMap).length;
-  const denominator = Math.max(1, totalFiles - targetFileIds.length);
-  const blastPct = Number(((totalImpacted / denominator) * 100).toFixed(1));
-
-  // Enterprise Quality Gate Metrics
-  const isHighCentrality = targetFileIds.some((id) => (nodes[id]?.pageRank || 0) >= 0.55);
-  const isCircular = targetFileIds.some((id) => nodes[id]?.circularGroupId !== null);
-  const testedCount = Object.keys(impactedFileMap).filter((id) => id.includes('.test.') || id.includes('.spec.')).length;
-  const untestedRatio = totalImpacted > 0 ? Number((1 - testedCount / totalImpacted).toFixed(2)) : 0;
+  const denominator = Math.max(1, Object.keys(nodes).length - uniqueTargets.length);
+  const blastPercentage = Number(((totalImpacted / denominator) * 100).toFixed(1));
+  const highCentralityRisk = uniqueTargets.some((id) => (nodes[id]?.pageRank || 0) >= 0.55);
+  const circularDependencyImpact = uniqueTargets.some((id) => {
+    const groupId = nodes[id]?.circularGroupId;
+    return groupId !== undefined && groupId !== null;
+  });
+  const testLikeCount = Object.keys(impactedFileMap).filter((id) => /\.(test|spec)\.[^.]+$/i.test(id)).length;
+  const testFileNameHeuristicRatio = totalImpacted > 0 ? Number((testLikeCount / totalImpacted).toFixed(2)) : 0;
 
   let severity: MultiFileBlastReport['severity'] = 'LOW';
-  if (blastPct >= 35 || crossfireFiles.length >= 3) severity = 'CRITICAL';
-  else if (blastPct >= 18) severity = 'HIGH';
-  else if (blastPct >= 6) severity = 'MODERATE';
-
-  const canMergeSafely = severity === 'LOW' && !isHighCentrality && !isCircular;
+  if (blastPercentage >= 35 || crossfireFiles.length >= 3) severity = 'CRITICAL';
+  else if (blastPercentage >= 18) severity = 'HIGH';
+  else if (blastPercentage >= 6) severity = 'MODERATE';
 
   return {
-    selectedFileIds: targetFileIds,
+    selectedFileIds: uniqueTargets,
     totalImpactedCount: totalImpacted,
-    blastPercentage: blastPct,
+    blastPercentage,
     waves,
     impactedFileMap,
     crossfireFiles,
     causalPaths,
     severity,
     qualityGate: {
-      breakingApiSurface: totalImpacted > 5,
-      highCentralityRisk: isHighCentrality,
-      circularDependencyImpact: isCircular,
-      untestedFilesRatio: untestedRatio,
-      canMergeSafely,
+      manyImpactedFiles: totalImpacted > 5,
+      highCentralityRisk,
+      circularDependencyImpact,
+      testFileNameHeuristicRatio,
+      lowTopologyRisk: severity === 'LOW' && !highCentralityRisk && !circularDependencyImpact,
     },
   };
 }

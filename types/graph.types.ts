@@ -1,4 +1,4 @@
-﻿export interface RawRepoFile {
+export interface RawRepoFile {
   path: string;
   content: string;
   size: number;
@@ -13,6 +13,7 @@ export type SupportedLanguage =
   | 'go' 
   | 'rust' 
   | 'java' 
+  | 'kotlin'
   | 'csharp' 
   | 'unknown';
 
@@ -72,9 +73,9 @@ export interface BlastWaveLevel {
 }
 
 export interface QualityGateAudit {
-  canMergeSafely: boolean;
-  breakingApiSurface: boolean;
+  lowTopologyRisk: boolean;
+  manyImpactedFiles: boolean;
   highCentralityRisk: boolean;
   circularDependencyImpact: boolean;
-  untestedFilesRatio: number;
+  testFileNameHeuristicRatio: number;
 }

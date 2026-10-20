@@ -8,7 +8,7 @@ export interface HealingPatch {
   targetFile: string;
   patchType: 'FACADE_ADAPTER' | 'SAFE_FORWARDER' | 'DECOUPLING_INVERSION';
   synthesizedCode: string;
-  blastReductionRatio: number;
+  blastReductionRatio: null;
 }
 
 export class SelfHealingPatcher {
@@ -17,9 +17,9 @@ export class SelfHealingPatcher {
     deprecatedSymbols: string[],
     newSignatures: Record<string, string>
   ): HealingPatch {
-    const facadeName = `${brokenFile.split('/').pop()?.split('.')[0]}Facade`;
+    const safeSymbols = deprecatedSymbols.filter((symbol) => /^[A-Za-z_$][\w$]*$/.test(symbol));
 
-    const generatedForwarders = deprecatedSymbols
+    const generatedForwarders = safeSymbols
       .map((sym) => {
         return `
 /**
@@ -28,7 +28,8 @@ export class SelfHealingPatcher {
  */
 export function ${sym}(...args: any[]) {
   console.warn('[GitBlast Self-Healing] Legacy call intercepted on: ${sym}');
-  return (${newSignatures[sym] || 'null'});
+  // TODO: Replace this placeholder with a reviewed implementation.
+  return undefined;
 }`;
       })
       .join('\n');
@@ -44,7 +45,7 @@ ${generatedForwarders}
       targetFile: brokenFile,
       patchType: 'FACADE_ADAPTER',
       synthesizedCode: fullPatch,
-      blastReductionRatio: 92.5,
+      blastReductionRatio: null,
     };
   }
 }

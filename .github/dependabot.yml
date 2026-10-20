@@ -1,27 +1,33 @@
 ﻿version: 2
 updates:
-  # 1. NPM Dependencies with Grouped Updates, Vulnerability Alerting & Daily Schedule
+  # Daily version PRs; normal updates and major upgrades stay in separate reviewable PRs.
   - package-ecosystem: "npm"
     directory: "/"
     schedule:
       interval: "daily"
       time: "05:00"
     open-pull-requests-limit: 15
-    # Group minor and patch updates together to avoid spamming pull requests
     groups:
-      default:
+      routine-updates:
         patterns:
           - "*"
           - "!typescript"
+        update-types:
+          - "minor"
+          - "patch"
+      major-updates:
+        patterns:
+          - "*"
+        update-types:
+          - "major"
     labels:
       - "dependencies"
       - "security"
       - "automated"
-    # Automatically allow security patch updates
     allow:
       - dependency-type: "all"
 
-  # 2. GitHub Actions Workflows Ecosystem Health & Security Check
+  # Keep third-party workflow actions current through dedicated Dependabot PRs.
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
